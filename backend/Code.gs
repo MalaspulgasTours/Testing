@@ -14,6 +14,7 @@ function setup() {
  if(!ss.getSheetByName('Notifications'))ss.insertSheet('Notifications').appendRow(['ReportId','CreatedAt','SentAt','Attempts','Error']);
  if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='deliverNotifications'))ScriptApp.newTrigger('deliverNotifications').timeBased().everyMinutes(5).create();
  const reports=ss.getSheetByName('Reports');if(reports.getLastColumn()<15)reports.getRange(1,15).setValue('Reviewed');reports.getRange('O2:O').setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+ const data=reports.getDataRange().getValues();if(data.length>1)reports.getRange(2,15,data.length-1,1).setValues(data.slice(1).map(r=>[r[0]?r[14]===true:'']));
  if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='reportEdited'))ScriptApp.newTrigger('reportEdited').forSpreadsheet(ss).onEdit().create();
  console.log('Sheet: '+ss.getUrl());console.log('Drive: https://drive.google.com/drive/folders/'+p.getProperty('FOLDER_ID'));
 }
@@ -90,7 +91,7 @@ function lookup(p,props){
 function requireReviewer(p,props){const password=props.getProperty('REVIEW_PASSWORD');if(!password||password.length<16)fail('El acceso de revisión no está configurado.');if(typeof p.reviewPassword!=='string'||p.reviewPassword.length>200||hash(p.reviewPassword)!==hash(password))fail('Contraseña incorrecta.');}
 function reviewReports(p,props){
  requireReviewer(p,props);const offset=Number(p.offset||0);if(!Number.isInteger(offset)||offset<0||offset>100000)fail('Página no válida.');
- const rows=sheetFor(props).getDataRange().getValues().slice(1).reverse(),notes=followupRows(props);
+ const rows=sheetFor(props).getDataRange().getValues().slice(1).filter(r=>r[0]).reverse(),notes=followupRows(props);
  const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,notes:notes.filter(n=>n[0]===r[0]&&n[2]).map(n=>({createdAt:n[1],text:n[2]}))}));
  return {ok:true,reports:reports,total:rows.length,nextOffset:offset+reports.length<rows.length?offset+reports.length:null};
 }

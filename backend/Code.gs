@@ -1,4 +1,4 @@
-const HEADERS = ['ID','CreatedAt','Type','Section','Steps','Expected','Actual','Impact','Device','Screenshot','Status','UpdatedAt','TokenHash','RequestId','Reviewed'];
+const HEADERS = ['ID','CreatedAt','Type','Section','Steps','Expected','Actual','Impact','Device','Screenshot','Status','UpdatedAt','TokenHash','RequestId','Reviewed','Title'];
 const STATUSES = ['Nuevo','En revisión','En curso','Resuelto','Descartado'];
 const MAX_IMAGE = 3 * 1024 * 1024;
 function setup() {
@@ -30,7 +30,7 @@ function doPost(e){
   if(p.origin!==origin||!validUuid(p.nonce))throw new Error('Solicitud no válida.');
   budget('requests',1000);
   requireReviewer(p,props);
-  response=p.action==='login'?issueSession(p,props):p.action==='submit'?submitReport(p,props):p.action==='status'?lookup(p,props):p.action==='review'?reviewReports(p,props):p.action==='screenshot'?reviewScreenshot(p,props):p.action==='followup'?followup(p,props):fail('Acción no válida.');
+  response=p.action==='login'?issueSession(p,props):p.action==='submit'?submitReport(p,props):p.action==='status'?lookup(p,props):p.action==='review'?reviewReports(p,props):p.action==='screenshot'?reviewScreenshot(p,props):p.action==='followup'?followup(p,props):p.action==='title'?setReportTitle(p,props):fail('Acción no válida.');
  }catch(error){response={ok:false,authRequired:!!error.authRequired,error:error.publicMessage||'No se pudo procesar la solicitud. Comprueba los datos y la configuración.'};}
  response.channel='feedback-v1';response.nonce=validUuid(p.nonce)?p.nonce:'';
  const json=JSON.stringify(response).replace(/</g,'\\u003c');
@@ -122,7 +122,7 @@ function issueSession(p,props){
 function reviewReports(p,props){
  requireReviewer(p,props);const offset=Number(p.offset||0);if(!Number.isInteger(offset)||offset<0||offset>100000)fail('Página no válida.');
  const rows=sheetFor(props).getDataRange().getValues().slice(1).filter(r=>r[0]).reverse(),notes=followupRows(props);
- const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,notes:notes.filter(n=>n[0]===r[0]&&n[2]).map(n=>({createdAt:n[1],text:n[2]}))}));
+ const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,title:String(r[15]||''),notes:notes.filter(n=>n[0]===r[0]&&n[2]).map(n=>({createdAt:n[1],text:n[2]}))}));
  return {ok:true,reports:reports,total:rows.length,nextOffset:offset+reports.length<rows.length?offset+reports.length:null};
 }
 function reviewScreenshot(p,props){
@@ -154,5 +154,19 @@ function deliverNotifications(){
  queue.getRange(i+1,4).setValue(Number(entry[3])+1);SpreadsheetApp.flush();
  try{MailApp.sendEmail({to:recipients,subject:'Nuevo reporte de pruebas · '+String(report[3]).replace(/[\r\n]/g,' '),body:'Hay una nueva prueba pendiente de revisión.\n\nReferencia: '+report[0]+'\nSección: '+report[3]+'\nTipo: '+({error:'Error',change:'Cambio / mejora',query:'Consulta'}[report[2]]||report[2])+'\nImpacto: '+({high:'Alto',medium:'Medio',low:'Bajo'}[report[7]]||report[7])+'\n\nRevisar el reporte: '+url+'\nEntra con la contraseña del equipo y abre «Revisión del equipo».\n\nPuedes marcar «Revisado» y «Solucionado» y añadir notas. El reporte original se conserva sin cambios.\nLa contraseña no se incluye en este correo.',name:'Pruebas del sistema'});queue.getRange(i+1,3).setValue(new Date().toISOString());queue.getRange(i+1,5).setValue('');sent++;}catch(error){queue.getRange(i+1,5).setValue('Error de envío; comprobar permisos y cuota.');}
  }
+ }finally{lock.releaseLock();}
+}
+
+function setReportTitle(p,props){
+ requireReviewer(p,props);const id=textField(p,'reportId',50),title=textField(p,'title',160,true).replace(/\s+/g,' '),previous=textField(p,'previousTitle',160,true);
+ const lock=LockService.getScriptLock();if(!lock.tryLock(20000))fail('Servicio ocupado. Inténtalo de nuevo.');
+ try{
+  const sheet=sheetFor(props),rows=sheet.getDataRange().getValues(),index=rows.findIndex((r,i)=>i>0&&r[0]===id);
+  if(index<1)fail('Reporte no encontrado.');
+  const current=String(rows[index][15]||'');
+  if(current!==previous&&current!==title)fail('El título ha cambiado desde que lo abriste. Vuelve a abrir la revisión antes de editarlo.');
+  const updatedAt=new Date().toISOString();
+  sheet.getRange(1,16).setValue('Title');sheet.getRange(index+1,16).setValue(safeCell(title));sheet.getRange(index+1,12).setValue(updatedAt);SpreadsheetApp.flush();
+  return {ok:true,title,updatedAt};
  }finally{lock.releaseLock();}
 }

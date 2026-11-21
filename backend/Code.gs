@@ -30,7 +30,7 @@ function doPost(e){
   if(p.origin!==origin||!validUuid(p.nonce))throw new Error('Solicitud no válida.');
   budget('requests',1000);
   requireReviewer(p,props);
-  response=p.action==='login'?issueSession(p,props):p.action==='submit'?submitReport(p,props):p.action==='status'?lookup(p,props):p.action==='review'?reviewReports(p,props):p.action==='screenshot'?reviewScreenshot(p,props):p.action==='followup'?followup(p,props):p.action==='title'?setReportTitle(p,props):fail('Acción no válida.');
+  response=p.action==='login'?issueSession(p,props):p.action==='submit'?submitReport(p,props):p.action==='status'?lookup(p,props):p.action==='review'?reviewReports(p,props):p.action==='screenshot'?reviewScreenshot(p,props):p.action==='followup'?followup(p,props):p.action==='title'?setReportTitle(p,props):p.action==='edit'?editReport(p,props):fail('Acción no válida.');
  }catch(error){response={ok:false,authRequired:!!error.authRequired,error:error.publicMessage||'No se pudo procesar la solicitud. Comprueba los datos y la configuración.'};}
  response.channel='feedback-v1';response.nonce=validUuid(p.nonce)?p.nonce:'';
  const json=JSON.stringify(response).replace(/</g,'\\u003c');
@@ -122,7 +122,7 @@ function issueSession(p,props){
 function reviewReports(p,props){
  requireReviewer(p,props);const offset=Number(p.offset||0);if(!Number.isInteger(offset)||offset<0||offset>100000)fail('Página no válida.');
  const rows=sheetFor(props).getDataRange().getValues().slice(1).filter(r=>r[0]).reverse(),notes=followupRows(props);
- const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,title:String(r[15]||''),notes:notes.filter(n=>n[0]===r[0]&&n[2]).map(n=>({createdAt:n[1],text:n[2]}))}));
+ const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,title:String(r[15]||''),editVersion:hash(JSON.stringify(r.slice(2,10))),notes:notes.filter(n=>n[0]===r[0]&&n[2]).map(n=>({createdAt:n[1],text:n[2]}))}));
  return {ok:true,reports:reports,total:rows.length,nextOffset:offset+reports.length<rows.length?offset+reports.length:null};
 }
 function reviewScreenshot(p,props){
@@ -158,7 +158,7 @@ function deliverNotifications(){
 }
 
 function setReportTitle(p,props){
- requireReviewer(p,props);const id=textField(p,'reportId',50),title=textField(p,'title',160,true).replace(/\s+/g,' '),previous=textField(p,'previousTitle',160,true);
+ requireOwner(p,props);const id=textField(p,'reportId',50),title=textField(p,'title',160,true).replace(/\s+/g,' '),previous=textField(p,'previousTitle',160,true);
  const lock=LockService.getScriptLock();if(!lock.tryLock(20000))fail('Servicio ocupado. Inténtalo de nuevo.');
  try{
   const sheet=sheetFor(props),rows=sheet.getDataRange().getValues(),index=rows.findIndex((r,i)=>i>0&&r[0]===id);
@@ -169,4 +169,36 @@ function setReportTitle(p,props){
   sheet.getRange(1,16).setValue('Title');sheet.getRange(index+1,16).setValue(safeCell(title));sheet.getRange(index+1,12).setValue(updatedAt);SpreadsheetApp.flush();
   return {ok:true,title,updatedAt};
  }finally{lock.releaseLock();}
+}
+
+function requireOwner(p,props){
+ requireReviewer(p,props);
+ const expected=props.getProperty('OWNER_PASSWORD');
+ if(!expected||expected.length<16)fail('La contraseña privada de edición todavía no está configurada.');
+ if(expected===props.getProperty('REVIEW_PASSWORD'))fail('La contraseña de edición debe ser distinta de la del equipo.');
+ if(typeof p.ownerPassword!=='string'||p.ownerPassword.length>200||!equalSignature(hash(p.ownerPassword),hash(expected)))fail('Contraseña de edición incorrecta. Solo la propietaria puede modificar el reporte.');
+}
+function editReport(p,props){
+ requireOwner(p,props);
+ const id=textField(p,'reportId',50),previous=textField(p,'editVersion',64);
+ const v=validateReport({...p,lookupToken:p.requestId+p.requestId});
+ if(!['keep','replace','remove'].includes(p.screenshotAction))fail('Cambio de captura no válido.');
+ const bytes=p.screenshotAction==='replace'?validateImage(p.image):null;
+ if(p.screenshotAction==='replace'&&!bytes)fail('Selecciona una captura.');
+ const fingerprint=hash(JSON.stringify([v,p.screenshotAction,p.image||null]));
+ const lock=LockService.getScriptLock();if(!lock.tryLock(20000))fail('Servicio ocupado. Inténtalo de nuevo.');
+ let file=null,committed=false;
+ try{
+  const sheet=sheetFor(props),rows=sheet.getDataRange().getValues(),index=rows.findIndex((r,i)=>i>0&&r[0]===id);
+  if(index<1)fail('Reporte no encontrado.');
+  const row=rows[index];let last={};try{last=JSON.parse(row[16]||'{}');}catch(ignored){}
+  if(last.requestId===p.requestId){if(last.fingerprint!==fingerprint)fail('Solicitud no válida.');return {ok:true,reportId:id};}
+  if(hash(JSON.stringify(row.slice(2,10)))!==previous)fail('El reporte ha cambiado. Actualiza el listado antes de editarlo.');
+  if(bytes)file=DriveApp.getFolderById(props.getProperty('FOLDER_ID')).createFile(Utilities.newBlob(bytes,p.image.mime,id+'-edit.'+({'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[p.image.mime])));
+  const screenshot=p.screenshotAction==='keep'?row[9]:file?file.getUrl():'';
+  const values=[v.type,v.section,v.steps,v.expected,v.actual,v.impact,v.device,screenshot].map(safeCell);
+  const updated=[...row];while(updated.length<17)updated.push('');updated.splice(2,8,...values);updated[11]=new Date().toISOString();updated[16]=JSON.stringify({requestId:p.requestId,fingerprint});
+  sheet.getRange(1,17).setValue('LastOwnerEdit');sheet.getRange(index+1,1,1,17).setValues([updated]);SpreadsheetApp.flush();committed=true;
+  return {ok:true,reportId:id};
+ }catch(error){if(file&&!committed){try{file.setTrashed(true);}catch(ignored){}}throw error;}finally{lock.releaseLock();}
 }

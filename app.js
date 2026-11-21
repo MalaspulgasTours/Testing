@@ -50,17 +50,22 @@ $('statusForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySele
 if(config.turnstileSiteKey){window.feedbackChallengeReady=()=>{widget=turnstile.render('#challenge',{sitekey:config.turnstileSiteKey,action:'feedback',language:'es'});};const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?onload=feedbackChallengeReady&render=explicit';script.async=true;script.onerror=()=>message('No se pudo cargar la verificación. Recarga la página.');document.head.append(script);}else if(!config.endpoint) message('Vista previa: falta conectar el servicio de reportes.');
 
 let reviewPassword='', nextOffset=null;
+const reviewCards=new Map();
+function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.impacts){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p','No hay reportes cargados con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
+function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const group=$('impact-'+(REVIEW_LAYOUT.impacts.some(x=>x.key===report.impact)?report.impact:'medium'));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.impacts){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}
 $('reviewTab').onclick=async()=>{showPanel('review');try{await loadReports(0);}catch(error){message(error.message);}};
 function textElement(tag,text,className){const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element;}
 function renderReport(report){
- const details=document.createElement('details');details.className='reportCard';
+ if(reviewCards.has(report.id))return;
+ const details=document.createElement('details');details.className='reportCard';details.dataset.reportId=report.id;
  const summary=document.createElement('summary');summary.append(textElement('strong',`${report.section} · ${report.status}`),textElement('span',`${({error:'Error',change:'Mejora',query:'Consulta'})[report.type]||report.type} · Impacto ${({high:'alto',medium:'medio',low:'bajo'})[report.impact]||report.impact} · ${new Date(report.createdAt).toLocaleString('es-ES')}`,'muted'));
- details.append(summary);
+ summary.append(textElement('span','','reviewState'));details.append(summary);
  for(const [title,value] of [['Referencia',report.id],['Paso a paso',report.steps],['Resultado esperado',report.expected],['Resultado real',report.actual],['Dispositivo y navegador',report.device]])details.append(textElement('h3',title),textElement('p',value||'—','noteText'));
  if(report.hasScreenshot){const b=textElement('button','Ver captura');b.type='button';b.onclick=async()=>{b.disabled=true;message('Cargando captura…');try{const r=await request({action:'screenshot',reviewPassword,reportId:report.id});if(!['image/png','image/jpeg','image/webp'].includes(r.mime)||!/^[A-Za-z0-9+/]*={0,2}$/.test(r.data))throw new Error('Captura no válida.');const img=document.createElement('img');img.src=`data:${r.mime};base64,${r.data}`;img.alt='Captura del reporte '+report.id;img.className='reviewScreenshot';details.append(img);b.remove();message('');}catch(e){message(e.message);b.disabled=false;}};details.append(b);}
  const changes=document.createElement('form');changes.className='programmerNotes';
- const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.checked=report.reviewed;
+ const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.checked=report.reviewed||report.status==='Resuelto';
  const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=report.status==='Resuelto';
+ fixed.onchange=()=>{if(fixed.checked)reviewed.checked=true;};reviewed.onchange=()=>{if(!reviewed.checked)fixed.checked=false;};
  const reviewedLabel=textElement('label','Revisado');reviewedLabel.prepend(reviewed);
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
  const noteLabel=textElement('label','Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder='Qué se ha revisado o solucionado…';noteLabel.append(note);
@@ -69,15 +74,24 @@ function renderReport(report){
  function showNotes(notes){history.replaceChildren();for(const n of notes){history.append(textElement('p',new Date(n.createdAt).toLocaleString('es-ES')+' · '+n.text,'noteText'));}}
  showNotes(report.notes||[]);details.append(textElement('h3','Notas del programador'),history,changes);
  let updateAttempt=null;
- changes.onsubmit=async e=>{e.preventDefault();save.disabled=true;const change={reviewed:reviewed.checked,fixed:fixed.checked,note:note.value};const fingerprint=JSON.stringify(change);if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};try{const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});showNotes(result.notes);summary.querySelector('strong').textContent=report.section+' · '+result.status;note.value='';updateAttempt=null;message('Seguimiento guardado. El reporte original no se ha modificado.');}catch(error){message(error.message);}finally{save.disabled=false;}};
- $('reportList').append(details);
+ changes.onsubmit=async e=>{e.preventDefault();save.disabled=true;const change={reviewed:reviewed.checked,fixed:fixed.checked,note:note.value};const fingerprint=JSON.stringify(change);if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};try{const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});showNotes(result.notes);report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);note.value='';updateAttempt=null;message('Seguimiento guardado. El reporte original no se ha modificado.');}catch(error){message(error.message);}finally{save.disabled=false;}};
+ reviewCards.set(report.id,{report,details});positionReviewCard(report,details);
 }
 async function loadReports(offset){
- const r=await request({action:'review',reviewPassword,offset});
- if(offset===0)$('reportList').replaceChildren();
- r.reports.forEach(renderReport);nextOffset=r.nextOffset;$('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${r.total} reportes · más recientes primero`;
- $('accessPanel').hidden=true;$('appNav').hidden=false;$('reviewContent').hidden=false;message(r.total?'':'Todavía no hay reportes.');
+ const sessionPassword=reviewPassword;
+ let total=0;
+ do {
+  const r=await request({action:'review',reviewPassword,offset});
+  if(!sessionPassword||reviewPassword!==sessionPassword)return;
+  if(offset===0)resetReviewGroups();
+  r.reports.forEach(renderReport);total=r.total;nextOffset=r.nextOffset;
+  $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${reviewCards.size} de ${total} reportes · agrupados por impacto`;
+  $('accessPanel').hidden=true;$('appNav').hidden=false;$('reviewContent').hidden=false;
+  if(nextOffset!==null){message('Cargando el resto de los reportes…');offset=nextOffset;}
+ } while(nextOffset!==null);
+ message(total?'':'Todavía no hay reportes.');
 }
 $('reviewLogin').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;reviewPassword=e.target.elements.reviewPassword.value;message('Abriendo notas…');try{await loadReports(0);showPanel('report');e.target.reset();}catch(error){reviewPassword='';message(error.message);}finally{b.disabled=false;}};
 $('moreReports').onclick=async()=>{const b=$('moreReports');b.disabled=true;try{await loadReports(nextOffset);}catch(error){message(error.message);}finally{b.disabled=false;}};
-$('reviewLogout').onclick=()=>{reviewPassword='';nextOffset=null;$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','status','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;message('Sesión cerrada.');};
+$('reviewLogout').onclick=()=>{reviewPassword='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','status','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;message('Sesión cerrada.');};
+resetReviewGroups();

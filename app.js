@@ -46,11 +46,11 @@ $('reportForm').onsubmit=async e=>{
 };
 if(config.turnstileSiteKey){window.feedbackChallengeReady=()=>{widget=turnstile.render('#challenge',{sitekey:config.turnstileSiteKey,action:'feedback',language:'es'});};const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?onload=feedbackChallengeReady&render=explicit';script.async=true;script.onerror=()=>message('No se pudo cargar la verificación. Recarga la página.');document.head.append(script);}else if(!config.endpoint) message('Vista previa: falta conectar el servicio de reportes.');
 
-let reviewPassword='', sessionToken='', nextOffset=null;
+let reviewPassword='', sessionToken='', nextOffset=null, accessRole='team';
 const ACCESS_KEY='feedback-access-v1';
 function forgetAccess(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem(ACCESS_KEY);}catch(ignored){}}}
 function storeAccess(result,remember){forgetAccess();const value=JSON.stringify({token:result.sessionToken,expiresAt:result.expiresAt});try{(remember?localStorage:sessionStorage).setItem(ACCESS_KEY,value);}catch(ignored){message('El navegador no permite guardar la sesión.');}}
-function lockAccess(){reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
+function lockAccess(){accessRole='team';reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
 const reviewCards=new Map();
 function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.impacts){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p','No hay reportes cargados con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
 function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const group=$('impact-'+(REVIEW_LAYOUT.impacts.some(x=>x.key===report.impact)?report.impact:'medium'));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.impacts){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}
@@ -62,16 +62,15 @@ function renderReport(report){
  const summary=document.createElement('summary');summary.append(textElement('strong',`${report.section} · ${report.status}`),textElement('span',REVIEW_LAYOUT.excerpt(report),'reportExcerpt'),textElement('span',`${({error:'Error',change:'Mejora',query:'Consulta'})[report.type]||report.type} · Impacto ${({high:'alto',medium:'medio',low:'bajo'})[report.impact]||report.impact} · ${new Date(report.createdAt).toLocaleString('es-ES')}`,'muted'));
  summary.querySelector('.reportExcerpt').title=REVIEW_LAYOUT.excerpt(report);
  summary.append(textElement('span','','reviewState'));details.append(summary);
- const editReportButton=textElement('button','Editar reporte');editReportButton.type='button';editReportButton.onclick=()=>openReportEditor(report,details);details.append(editReportButton);
+ const editReportButton=textElement('button','Editar reporte');editReportButton.type='button';editReportButton.onclick=()=>openReportEditor(report,details);editReportButton.hidden=accessRole!=='owner';details.append(editReportButton);
  const back=textElement('button','Volver al listado','reportBack');back.type='button';back.onclick=()=>{details.open=false;summary.focus({preventScroll:true});summary.scrollIntoView({behavior:'smooth',block:'center'});};details.append(back);
  const titleForm=document.createElement('form');titleForm.className='reportTitleForm';titleForm.hidden=true;
- const ownerTitleLabel=textElement('label','Contraseña privada de edición');const ownerTitleInput=document.createElement('input');ownerTitleInput.type='password';ownerTitleInput.required=true;ownerTitleInput.maxLength=200;ownerTitleInput.autocomplete='current-password';ownerTitleLabel.append(ownerTitleInput);titleForm.append(ownerTitleLabel);
  const titleLabel=textElement('label','Título del reporte');const titleInput=document.createElement('input');titleInput.type='text';titleInput.maxLength=160;titleInput.placeholder='Resumen breve del reporte';titleLabel.append(titleInput);
  const saveTitle=textElement('button','Guardar título','primary');saveTitle.type='submit';const automaticTitle=textElement('button','Usar resumen automático');automaticTitle.type='button';const cancelTitle=textElement('button','Cancelar');cancelTitle.type='button';const titleActions=document.createElement('div');titleActions.className='titleActions';titleActions.append(saveTitle,automaticTitle,cancelTitle);titleForm.append(titleLabel,titleActions);details.append(titleForm);
- const editTitle=textElement('button','Editar título','editTitleButton');editTitle.type='button';summary.append(editTitle);let wasOpen=false;
+ const editTitle=textElement('button','Editar título','editTitleButton');editTitle.type='button';editTitle.hidden=accessRole!=='owner';summary.append(editTitle);let wasOpen=false;
  editTitle.onclick=e=>{e.preventDefault();e.stopPropagation();wasOpen=details.open;details.open=true;titleForm.hidden=false;titleInput.value=report.title||REVIEW_LAYOUT.excerpt(report);titleInput.focus();titleInput.select();};
  cancelTitle.onclick=()=>{titleForm.hidden=true;details.open=wasOpen;};
- async function updateTitle(value){saveTitle.disabled=true;automaticTitle.disabled=true;cancelTitle.disabled=true;titleInput.disabled=true;try{const r=await request({action:'title',ownerPassword:ownerTitleInput.value,reportId:report.id,title:value,previousTitle:report.title||''});report.title=r.title;report.updatedAt=r.updatedAt;const preview=summary.querySelector('.reportExcerpt');preview.textContent=REVIEW_LAYOUT.excerpt(report);preview.title=preview.textContent;ownerTitleInput.value='';titleForm.hidden=true;details.open=wasOpen;message('Título guardado. Las notas originales no se han modificado.');}catch(error){message(error.message);}finally{saveTitle.disabled=false;automaticTitle.disabled=false;cancelTitle.disabled=false;titleInput.disabled=false;}}
+ async function updateTitle(value){saveTitle.disabled=true;automaticTitle.disabled=true;cancelTitle.disabled=true;titleInput.disabled=true;try{const r=await request({action:'title',reportId:report.id,title:value,previousTitle:report.title||''});report.title=r.title;report.updatedAt=r.updatedAt;const preview=summary.querySelector('.reportExcerpt');preview.textContent=REVIEW_LAYOUT.excerpt(report);preview.title=preview.textContent;titleForm.hidden=true;details.open=wasOpen;message('Título guardado. Las notas originales no se han modificado.');}catch(error){message(error.message);}finally{saveTitle.disabled=false;automaticTitle.disabled=false;cancelTitle.disabled=false;titleInput.disabled=false;}}
  titleForm.onsubmit=e=>{e.preventDefault();return updateTitle(titleInput.value);};automaticTitle.onclick=()=>updateTitle('');
  for(const [title,value] of [['Referencia',report.id],['Paso a paso',report.steps],['Resultado esperado',report.expected],['Resultado real',report.actual],['Dispositivo y navegador',report.device]])details.append(textElement('h3',title),textElement('p',value||'—','noteText'));
  if(report.hasScreenshot){const b=textElement('button','Ver captura');b.type='button';b.onclick=async()=>{b.disabled=true;message('Cargando captura…');try{const r=await request({action:'screenshot',reviewPassword,reportId:report.id});if(!['image/png','image/jpeg','image/webp'].includes(r.mime)||!/^[A-Za-z0-9+/]*={0,2}$/.test(r.data))throw new Error('Captura no válida.');const img=document.createElement('img');img.src=`data:${r.mime};base64,${r.data}`;img.alt='Captura del reporte '+report.id;img.className='reviewScreenshot';details.append(img);b.remove();message('');}catch(e){message(e.message);b.disabled=false;}};details.append(b);}
@@ -114,7 +113,7 @@ async function loadReports(offset){
  do {
   const r=await request({action:'review',reviewPassword,offset});
   if(!sessionPassword||(sessionToken||reviewPassword)!==sessionPassword)return;
-  if(offset===0)resetReviewGroups();
+  accessRole=r.role==='owner'?'owner':'team';$('accessRole').textContent=accessRole==='owner'?'Sesión de propietaria · puedes editar':'Sesión del equipo';if(offset===0)resetReviewGroups();
   r.reports.forEach(renderReport);total=r.total;nextOffset=r.nextOffset;
   $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${reviewCards.size} de ${total} reportes · agrupados por impacto`;
   $('accessPanel').hidden=true;$('appNav').hidden=false;$('reviewContent').hidden=false;
@@ -131,6 +130,7 @@ async function restoreAccess(){let saved=null;try{saved=JSON.parse(sessionStorag
 restoreAccess();
 
 function openReportEditor(report,details){
+ if(accessRole!=='owner')return;
  if(details.querySelector('.ownerReportEditor'))return;
  const form=document.createElement('form');form.className='ownerReportEditor';form.append(textElement('h3','Editar reporte · solo propietaria'));
  const fields={};
@@ -147,7 +147,6 @@ function openReportEditor(report,details){
  let replacement=null;
  file.onchange=async()=>{replacement=null;const selected=file.files[0];if(!selected)return;if(!['image/png','image/jpeg','image/webp'].includes(selected.type)||selected.size>3*1024*1024){file.value='';message('Elige una captura PNG, JPG o WebP de hasta 3 MB.');return;}try{const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(selected);});replacement={mime:selected.type,data:data.split(',')[1]};remove.checked=false;}catch(error){file.value='';message('No se pudo leer la captura.');}};
  remove.onchange=()=>{if(remove.checked){replacement=null;file.value='';}};
- const password=add('ownerPassword','Contraseña privada de edición','');password.type='password';password.maxLength=200;password.autocomplete='current-password';
  const save=textElement('button','Guardar cambios','primary');save.type='submit';const cancel=textElement('button','Cancelar edición');cancel.type='button';cancel.onclick=()=>form.remove();form.append(save,cancel);
  let attempt=null;
  form.onsubmit=async e=>{e.preventDefault();save.disabled=true;cancel.disabled=true;try{
@@ -155,7 +154,7 @@ function openReportEditor(report,details){
  if(!['Tours','Liquidación','Guías'].includes(data.section)){data.otherSection=data.section;data.section='Otra';}
  const screenshotAction=replacement?'replace':remove.checked?'remove':'keep';const fingerprint=JSON.stringify([data,screenshotAction,replacement]);if(!attempt||attempt.fingerprint!==fingerprint)attempt={fingerprint,requestId:crypto.randomUUID()};
  await request({action:'edit',...data,reportId:report.id,editVersion:report.editVersion,screenshotAction,image:replacement,requestId:attempt.requestId,website:''});
- password.value='';form.remove();await loadReports(0);message('Cambios guardados. El seguimiento y las notas del equipo se conservan.');
+ form.remove();await loadReports(0);message('Cambios guardados. El seguimiento y las notas del equipo se conservan.');
  }catch(error){message(error.message);}finally{save.disabled=false;cancel.disabled=false;}};
  details.open=true;details.insertBefore(form,details.querySelector('.programmerNotes'));form.scrollIntoView({behavior:'smooth',block:'start'});
 }

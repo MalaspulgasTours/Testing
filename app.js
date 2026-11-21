@@ -1,5 +1,6 @@
 'use strict';
 const config = window.FEEDBACK_CONFIG;
+const DEFAULT_DEVICE = 'Windows 11 Home/ Versión 155.0.8059.39 (Build oficial) (64 bits)';
 const $ = id => document.getElementById(id);
 let image = null, widget = null, pending = null, attempt = null;
 const message = text => { $('message').textContent = text; };
@@ -7,7 +8,7 @@ function showPanel(name) { for(const key of ['report','status','review']) { $(ke
 function tab(status) { showPanel(status?'status':'report'); }
 $('newTab').onclick=()=>tab(false); $('statusTab').onclick=()=>tab(true);
 $('section').onchange=()=>{const other=$('section').value==='Otra';$('otherLabel').hidden=!other;$('otherLabel').querySelector('input').required=other;};
-$('device').value=navigator.userAgent;
+$('device').value=DEFAULT_DEVICE;
 function clearImage(){image=null;$('previewBox').hidden=true;$('preview').removeAttribute('src');$('screenshot').value='';}
 $('removeImage').onclick=clearImage;
 async function setImage(file){
@@ -35,14 +36,14 @@ window.addEventListener('message',e=>{
 $('reportForm').onsubmit=async e=>{
  e.preventDefault();const button=$('submitButton');button.disabled=true;message('Enviando reporte…');
  try{
-  const fields=Object.fromEntries(new FormData(e.target));const token=window.turnstile?.getResponse(widget);
+  const fields=Object.fromEntries(new FormData(e.target));fields.device=fields.device.trim()||DEFAULT_DEVICE;const token=window.turnstile?.getResponse(widget);
   if(config.turnstileSiteKey&&!token)throw new Error('Completa la verificación antes de enviar.');
   const fingerprint=JSON.stringify({...fields,image});
   if(!attempt||attempt.fingerprint!==fingerprint)attempt={fingerprint,requestId:crypto.randomUUID(),lookupToken:crypto.randomUUID()+crypto.randomUUID()};
   const result=await request({action:'submit',...fields,image,requestId:attempt.requestId,lookupToken:attempt.lookupToken,turnstileToken:token});
   message(`Reporte recibido: ${result.reportId}\nCódigo privado: ${attempt.lookupToken}\nGuarda estos datos para consultar el estado. El código no se puede recuperar.`);
   $('statusForm').elements.reportId.value=result.reportId;$('statusForm').elements.lookupToken.value=attempt.lookupToken;
-  e.target.reset();$('section').onchange();$('device').value=navigator.userAgent;clearImage();attempt=null;
+  e.target.reset();$('section').onchange();$('device').value=DEFAULT_DEVICE;clearImage();attempt=null;
  }catch(error){message(error.message);}finally{button.disabled=false;if(widget!==null)window.turnstile?.reset(widget);}
 };
 $('statusForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;message('Consultando…');try{const r=await request({action:'status',...Object.fromEntries(new FormData(e.target))});message(`Referencia: ${r.reportId}\nEstado: ${r.status}\nActualizado: ${new Date(r.updatedAt).toLocaleString('es-ES')}`);}catch(error){message(error.message);}finally{b.disabled=false;}};

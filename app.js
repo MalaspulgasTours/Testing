@@ -59,7 +59,8 @@ function textElement(tag,text,className){const element=document.createElement(ta
 function renderReport(report){
  if(reviewCards.has(report.id))return;
  const details=document.createElement('details');details.className='reportCard';details.dataset.reportId=report.id;
- const summary=document.createElement('summary');summary.append(textElement('strong',`${report.section} · ${report.status}`),textElement('span',`${({error:'Error',change:'Mejora',query:'Consulta'})[report.type]||report.type} · Impacto ${({high:'alto',medium:'medio',low:'bajo'})[report.impact]||report.impact} · ${new Date(report.createdAt).toLocaleString('es-ES')}`,'muted'));
+ const summary=document.createElement('summary');summary.append(textElement('strong',`${report.section} · ${report.status}`),textElement('span',REVIEW_LAYOUT.excerpt(report),'reportExcerpt'),textElement('span',`${({error:'Error',change:'Mejora',query:'Consulta'})[report.type]||report.type} · Impacto ${({high:'alto',medium:'medio',low:'bajo'})[report.impact]||report.impact} · ${new Date(report.createdAt).toLocaleString('es-ES')}`,'muted'));
+ summary.querySelector('.reportExcerpt').title=REVIEW_LAYOUT.excerpt(report);
  summary.append(textElement('span','','reviewState'));details.append(summary);
  const back=textElement('button','Volver al listado','reportBack');back.type='button';back.onclick=()=>{details.open=false;summary.focus({preventScroll:true});summary.scrollIntoView({behavior:'smooth',block:'center'});};details.append(back);
  for(const [title,value] of [['Referencia',report.id],['Paso a paso',report.steps],['Resultado esperado',report.expected],['Resultado real',report.actual],['Dispositivo y navegador',report.device]])details.append(textElement('h3',title),textElement('p',value||'—','noteText'));

@@ -90,40 +90,44 @@ function lookup(p,props){
 
 function authFailure(message){const error=new Error(message);error.publicMessage=message;error.authRequired=true;throw error;}
 function requirePassword(p,props){
- const expected=props.getProperty('REVIEW_PASSWORD');
- if(!expected||expected.length<16)authFailure('El acceso de revisión no está configurado.');
- if(typeof p.reviewPassword!=='string'||p.reviewPassword.length>200||hash(p.reviewPassword)!==hash(expected))authFailure('Contraseña incorrecta.');
+ const team=props.getProperty('REVIEW_PASSWORD'),owner=props.getProperty('OWNER_PASSWORD');
+ if(!team||team.length<16)authFailure('El acceso no está configurado.');
+ if(typeof p.reviewPassword!=='string'||p.reviewPassword.length>200)authFailure('Contraseña incorrecta.');
+ if(owner&&owner.length>=16&&owner!==team&&equalSignature(hash(p.reviewPassword),hash(owner)))return 'owner';
+ if(equalSignature(hash(p.reviewPassword),hash(team)))return 'team';
+ authFailure('Contraseña incorrecta.');
 }
 function sessionSignature(body,props){
  const secret=props.getProperty('SESSION_SECRET'),password=props.getProperty('REVIEW_PASSWORD');
  if(!secret||!password||password.length<16)authFailure('Vuelve a entrar para renovar tu sesión.');
- return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature('feedback-session-v1.'+body,secret+':'+hash(password))).replace(/=+$/,'');
+ return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature('feedback-session-v2.'+body,secret+':'+hash(password)+':'+hash(props.getProperty('OWNER_PASSWORD')||''))).replace(/=+$/,'');
 }
 function equalSignature(a,b){if(a.length!==b.length)return false;let difference=0;for(let i=0;i<a.length;i++)difference|=a.charCodeAt(i)^b.charCodeAt(i);return difference===0;}
 function requireReviewer(p,props){
- if(!p.sessionToken){requirePassword(p,props);return;}
+ if(!p.sessionToken)return requirePassword(p,props);
  try{
   if(typeof p.sessionToken!=='string'||p.sessionToken.length>1000)throw new Error();
   const parts=p.sessionToken.split('.');if(parts.length!==2||!parts.every(s=>/^[A-Za-z0-9_-]+$/.test(s)))throw new Error();
   if(!equalSignature(parts[1],sessionSignature(parts[0],props)))throw new Error();
   const data=JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
-  if(!Number.isFinite(data.expiresAt)||data.expiresAt<=Date.now()||!validUuid(data.nonce))throw new Error();
+  if(!Number.isFinite(data.expiresAt)||data.expiresAt<=Date.now()||!validUuid(data.nonce)||!['owner','team'].includes(data.role))throw new Error();
+  return data.role;
  }catch(error){authFailure('Tu sesión ha caducado o ya no es válida. Vuelve a entrar.');}
 }
 function issueSession(p,props){
- requirePassword(p,props);
+ const role=requirePassword(p,props);
  const lock=LockService.getScriptLock();if(!lock.tryLock(10000))fail('Servicio ocupado. Inténtalo de nuevo.');
  try{if(!props.getProperty('SESSION_SECRET'))props.setProperty('SESSION_SECRET',Utilities.getUuid()+Utilities.getUuid());}finally{lock.releaseLock();}
  const expiresAt=Date.now()+7*24*60*60*1000;
- const body=Utilities.base64EncodeWebSafe(JSON.stringify({expiresAt,nonce:Utilities.getUuid()})).replace(/=+$/,'');
- return {ok:true,sessionToken:body+'.'+sessionSignature(body,props),expiresAt};
+ const body=Utilities.base64EncodeWebSafe(JSON.stringify({expiresAt,nonce:Utilities.getUuid(),role})).replace(/=+$/,'');
+ return {ok:true,sessionToken:body+'.'+sessionSignature(body,props),expiresAt,role};
 }
 
 function reviewReports(p,props){
  requireReviewer(p,props);const offset=Number(p.offset||0);if(!Number.isInteger(offset)||offset<0||offset>100000)fail('Página no válida.');
  const rows=sheetFor(props).getDataRange().getValues().slice(1).filter(r=>r[0]).reverse(),notes=followupRows(props);
  const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,title:String(r[15]||''),editVersion:hash(JSON.stringify(r.slice(2,10))),notes:notes.filter(n=>n[0]===r[0]&&n[2]).map(n=>({createdAt:n[1],text:n[2]}))}));
- return {ok:true,reports:reports,total:rows.length,nextOffset:offset+reports.length<rows.length?offset+reports.length:null};
+ return {ok:true,role:requireReviewer(p,props),reports:reports,total:rows.length,nextOffset:offset+reports.length<rows.length?offset+reports.length:null};
 }
 function reviewScreenshot(p,props){
  requireReviewer(p,props);const id=textField(p,'reportId',50);const row=sheetFor(props).getDataRange().getValues().slice(1).find(r=>r[0]===id);if(!row||!row[9])fail('Captura no disponible.');
@@ -172,11 +176,7 @@ function setReportTitle(p,props){
 }
 
 function requireOwner(p,props){
- requireReviewer(p,props);
- const expected=props.getProperty('OWNER_PASSWORD');
- if(!expected||expected.length<16)fail('La contraseña privada de edición todavía no está configurada.');
- if(expected===props.getProperty('REVIEW_PASSWORD'))fail('La contraseña de edición debe ser distinta de la del equipo.');
- if(typeof p.ownerPassword!=='string'||p.ownerPassword.length>200||!equalSignature(hash(p.ownerPassword),hash(expected)))fail('Contraseña de edición incorrecta. Solo la propietaria puede modificar el reporte.');
+ if(!p.sessionToken||requireReviewer(p,props)!=='owner')fail('Solo la propietaria puede editar. Cierra sesión y entra con tu contraseña privada.');
 }
 function editReport(p,props){
  requireOwner(p,props);

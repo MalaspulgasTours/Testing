@@ -8,7 +8,6 @@ Aplicación en español para documentar errores, cambios y consultas. Frontend e
 - Pegar una captura con Ctrl+V / ⌘V o cargar PNG, JPG o WebP de hasta 3 MB.
 - Revisar todos los reportes tras introducir la contraseña.
 - Marcar «Revisado» y «Solucionado» y añadir notas con fecha, sin editar los pasos ni resultados originales.
-- Consultar un estado mediante referencia y código privado.
 - Avisar de reportes nuevos a los destinatarios configurados de forma privada. El correo contiene un enlace y datos generales; nunca la contraseña ni el contenido completo de las notas.
 
 ## Configurar Google
@@ -76,7 +75,6 @@ Comprobación final manual:
 1. Abre GitHub Pages sin iniciar sesión en Google; prueba contraseña incorrecta y correcta.
 2. Envía un reporte con captura pegada y otro con archivo cargado. Comprueba una sola fila y un archivo privado por envío.
 3. Abre «Revisión del equipo», visualiza la captura, marca ambas casillas y añade una nota. Comprueba que los pasos y resultados originales no cambian.
-4. Consulta el estado con la referencia y código, y comprueba que un código erróneo se rechaza.
 5. Comprueba el correo y la cola; prueba fallos de red sin borrar el formulario.
 6. Cierra sesión y comprueba que la lista vuelve a requerir contraseña.
 

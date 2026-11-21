@@ -4,9 +4,8 @@ const DEFAULT_DEVICE = 'Windows 11 Home/ Versión 155.0.8059.39 (Build oficial) 
 const $ = id => document.getElementById(id);
 let image = null, widget = null, pending = null, attempt = null;
 const message = text => { $('message').textContent = text; };
-function showPanel(name) { for(const key of ['report','status','review']) { $(key+'Panel').hidden=key!==name; $(key==='report'?'newTab':key+'Tab').setAttribute('aria-pressed',key===name); } message(''); }
-function tab(status) { showPanel(status?'status':'report'); }
-$('newTab').onclick=()=>tab(false); $('statusTab').onclick=()=>tab(true);
+function showPanel(name) { for(const key of ['report','review']) { $(key+'Panel').hidden=key!==name; $(key==='report'?'newTab':key+'Tab').setAttribute('aria-pressed',key===name); } message(''); }
+$('newTab').onclick=()=>showPanel('report');
 $('section').onchange=()=>{const other=$('section').value==='Otra';$('otherLabel').hidden=!other;$('otherLabel').querySelector('input').required=other;};
 $('device').value=DEFAULT_DEVICE;
 function clearImage(){image=null;$('previewBox').hidden=true;$('preview').removeAttribute('src');$('screenshot').value='';}
@@ -41,19 +40,17 @@ $('reportForm').onsubmit=async e=>{
   const fingerprint=JSON.stringify({...fields,image});
   if(!attempt||attempt.fingerprint!==fingerprint)attempt={fingerprint,requestId:crypto.randomUUID(),lookupToken:crypto.randomUUID()+crypto.randomUUID()};
   const result=await request({action:'submit',...fields,image,requestId:attempt.requestId,lookupToken:attempt.lookupToken,turnstileToken:token});
-  message(`Reporte recibido: ${result.reportId}\nCódigo privado: ${attempt.lookupToken}\nGuarda estos datos para consultar el estado. El código no se puede recuperar.`);
-  $('statusForm').elements.reportId.value=result.reportId;$('statusForm').elements.lookupToken.value=attempt.lookupToken;
+  message(`Reporte recibido: ${result.reportId}\nPuedes seguir su estado en «Revisión del equipo».`);
   e.target.reset();$('section').onchange();$('device').value=DEFAULT_DEVICE;clearImage();attempt=null;
  }catch(error){message(error.message);}finally{button.disabled=false;if(widget!==null)window.turnstile?.reset(widget);}
 };
-$('statusForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;message('Consultando…');try{const r=await request({action:'status',...Object.fromEntries(new FormData(e.target))});message(`Referencia: ${r.reportId}\nEstado: ${r.status}\nActualizado: ${new Date(r.updatedAt).toLocaleString('es-ES')}`);}catch(error){message(error.message);}finally{b.disabled=false;}};
 if(config.turnstileSiteKey){window.feedbackChallengeReady=()=>{widget=turnstile.render('#challenge',{sitekey:config.turnstileSiteKey,action:'feedback',language:'es'});};const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?onload=feedbackChallengeReady&render=explicit';script.async=true;script.onerror=()=>message('No se pudo cargar la verificación. Recarga la página.');document.head.append(script);}else if(!config.endpoint) message('Vista previa: falta conectar el servicio de reportes.');
 
 let reviewPassword='', sessionToken='', nextOffset=null;
 const ACCESS_KEY='feedback-access-v1';
 function forgetAccess(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem(ACCESS_KEY);}catch(ignored){}}}
 function storeAccess(result,remember){forgetAccess();const value=JSON.stringify({token:result.sessionToken,expiresAt:result.expiresAt});try{(remember?localStorage:sessionStorage).setItem(ACCESS_KEY,value);}catch(ignored){message('El navegador no permite guardar la sesión.');}}
-function lockAccess(){reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','status','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
+function lockAccess(){reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
 const reviewCards=new Map();
 function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.impacts){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p','No hay reportes cargados con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
 function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const group=$('impact-'+(REVIEW_LAYOUT.impacts.some(x=>x.key===report.impact)?report.impact:'medium'));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.impacts){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}

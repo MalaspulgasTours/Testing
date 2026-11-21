@@ -13,7 +13,7 @@ function setup() {
  if(!ss.getSheetByName('Followup'))ss.insertSheet('Followup').appendRow(['ReportId','CreatedAt','Note','RequestId','Reviewed','Fixed']);
  if(!ss.getSheetByName('Notifications'))ss.insertSheet('Notifications').appendRow(['ReportId','CreatedAt','SentAt','Attempts','Error']);
  if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='deliverNotifications'))ScriptApp.newTrigger('deliverNotifications').timeBased().everyMinutes(5).create();
- const reports=ss.getSheetByName('Reports');if(reports.getLastColumn()<15)reports.getRange(1,15).setValue('Reviewed');reports.getRange('O2:O').insertCheckboxes();
+ const reports=ss.getSheetByName('Reports');if(reports.getLastColumn()<15)reports.getRange(1,15).setValue('Reviewed');reports.getRange('O2:O').setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
  if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='reportEdited'))ScriptApp.newTrigger('reportEdited').forSpreadsheet(ss).onEdit().create();
  console.log('Sheet: '+ss.getUrl());console.log('Drive: https://drive.google.com/drive/folders/'+p.getProperty('FOLDER_ID'));
 }

@@ -70,7 +70,6 @@ function renderReport(report){
  const changes=document.createElement('form');changes.className='programmerNotes';
  const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.checked=report.reviewed||report.status==='Resuelto';
  const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=report.status==='Resuelto';
- fixed.onchange=()=>{if(fixed.checked)reviewed.checked=true;};reviewed.onchange=()=>{if(!reviewed.checked)fixed.checked=false;};
  const reviewedLabel=textElement('label','Revisado');reviewedLabel.prepend(reviewed);
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
  const noteLabel=textElement('label','Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder='Qué se ha revisado o solucionado…';noteLabel.append(note);
@@ -79,7 +78,26 @@ function renderReport(report){
  function showNotes(notes){history.replaceChildren();for(const n of notes){history.append(textElement('p',new Date(n.createdAt).toLocaleString('es-ES')+' · '+n.text,'noteText'));}}
  showNotes(report.notes||[]);details.append(textElement('h3','Notas del programador'),history,changes);
  let updateAttempt=null;
- changes.onsubmit=async e=>{e.preventDefault();save.disabled=true;const change={reviewed:reviewed.checked,fixed:fixed.checked,note:note.value};const fingerprint=JSON.stringify(change);if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};try{const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});showNotes(result.notes);report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);note.value='';updateAttempt=null;message('Seguimiento guardado. El reporte original no se ha modificado.');}catch(error){message(error.message);}finally{save.disabled=false;}};
+ async function saveChanges(includeNote){
+  if(save.disabled)return;
+  save.disabled=true;reviewed.disabled=true;fixed.disabled=true;
+  const change={reviewed:reviewed.checked,fixed:fixed.checked,note:includeNote?note.value:''};
+  const fingerprint=JSON.stringify(change);
+  if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};
+  message('Guardando seguimiento…');
+  try{
+   const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});
+   showNotes(result.notes);report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
+   reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';
+   summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
+   if(includeNote&&note.value===change.note)note.value='';
+   updateAttempt=null;message(fixed.checked?'Reporte solucionado: aparece en verde al final de su sección.':'Seguimiento guardado. El reporte original no se ha modificado.');
+  }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';message(error.message);}
+  finally{save.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
+ }
+ fixed.onchange=()=>{if(fixed.checked)reviewed.checked=true;return saveChanges(false);};
+ reviewed.onchange=()=>{if(!reviewed.checked)fixed.checked=false;return saveChanges(false);};
+ changes.onsubmit=e=>{e.preventDefault();return saveChanges(true);};
  reviewCards.set(report.id,{report,details});positionReviewCard(report,details);
 }
 async function loadReports(offset){

@@ -26,12 +26,12 @@ function request(payload){
   const nonce=crypto.randomUUID();const timer=setTimeout(()=>{pending=null;reject(new Error('No se pudo confirmar la respuesta. Conservamos el formulario; reintenta para recuperar el mismo reporte.'));},60000);
   pending={nonce,resolve,reject,timer};
   const form=document.createElement('form');form.method='POST';form.action=config.endpoint;form.target='transport';form.hidden=true;
-  const input=document.createElement('input');input.name='payload';input.value=JSON.stringify({...payload,reviewPassword,nonce,origin:location.origin});form.append(input);document.body.append(form);form.submit();form.remove();
+  const input=document.createElement('input');input.name='payload';input.value=JSON.stringify({...payload,reviewPassword,sessionToken,nonce,origin:location.origin});form.append(input);document.body.append(form);form.submit();form.remove();
  });
 }
 window.addEventListener('message',e=>{
  if(!pending||!/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/.test(e.origin)||e.data?.channel!=='feedback-v1'||e.data.nonce!==pending.nonce)return;
- const p=pending;pending=null;clearTimeout(p.timer);e.data.ok?p.resolve(e.data):p.reject(new Error(e.data.error||'No se pudo completar la solicitud.'));
+ const p=pending;pending=null;clearTimeout(p.timer);if(!e.data.ok&&e.data.authRequired){forgetAccess();lockAccess();}e.data.ok?p.resolve(e.data):p.reject(new Error(e.data.error||'No se pudo completar la solicitud.'));
 });
 $('reportForm').onsubmit=async e=>{
  e.preventDefault();const button=$('submitButton');button.disabled=true;message('Enviando reporte…');
@@ -49,7 +49,11 @@ $('reportForm').onsubmit=async e=>{
 $('statusForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;message('Consultando…');try{const r=await request({action:'status',...Object.fromEntries(new FormData(e.target))});message(`Referencia: ${r.reportId}\nEstado: ${r.status}\nActualizado: ${new Date(r.updatedAt).toLocaleString('es-ES')}`);}catch(error){message(error.message);}finally{b.disabled=false;}};
 if(config.turnstileSiteKey){window.feedbackChallengeReady=()=>{widget=turnstile.render('#challenge',{sitekey:config.turnstileSiteKey,action:'feedback',language:'es'});};const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?onload=feedbackChallengeReady&render=explicit';script.async=true;script.onerror=()=>message('No se pudo cargar la verificación. Recarga la página.');document.head.append(script);}else if(!config.endpoint) message('Vista previa: falta conectar el servicio de reportes.');
 
-let reviewPassword='', nextOffset=null;
+let reviewPassword='', sessionToken='', nextOffset=null;
+const ACCESS_KEY='feedback-access-v1';
+function forgetAccess(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem(ACCESS_KEY);}catch(ignored){}}}
+function storeAccess(result,remember){forgetAccess();const value=JSON.stringify({token:result.sessionToken,expiresAt:result.expiresAt});try{(remember?localStorage:sessionStorage).setItem(ACCESS_KEY,value);}catch(ignored){message('El navegador no permite guardar la sesión.');}}
+function lockAccess(){reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','status','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
 const reviewCards=new Map();
 function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.impacts){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p','No hay reportes cargados con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
 function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const group=$('impact-'+(REVIEW_LAYOUT.impacts.some(x=>x.key===report.impact)?report.impact:'medium'));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.impacts){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}
@@ -78,11 +82,11 @@ function renderReport(report){
  reviewCards.set(report.id,{report,details});positionReviewCard(report,details);
 }
 async function loadReports(offset){
- const sessionPassword=reviewPassword;
+ const sessionPassword=sessionToken||reviewPassword;
  let total=0;
  do {
   const r=await request({action:'review',reviewPassword,offset});
-  if(!sessionPassword||reviewPassword!==sessionPassword)return;
+  if(!sessionPassword||(sessionToken||reviewPassword)!==sessionPassword)return;
   if(offset===0)resetReviewGroups();
   r.reports.forEach(renderReport);total=r.total;nextOffset=r.nextOffset;
   $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${reviewCards.size} de ${total} reportes · agrupados por impacto`;
@@ -91,7 +95,10 @@ async function loadReports(offset){
  } while(nextOffset!==null);
  message(total?'':'Todavía no hay reportes.');
 }
-$('reviewLogin').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;reviewPassword=e.target.elements.reviewPassword.value;message('Abriendo notas…');try{await loadReports(0);showPanel('report');e.target.reset();}catch(error){reviewPassword='';message(error.message);}finally{b.disabled=false;}};
+$('reviewLogin').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;sessionToken='';reviewPassword=e.target.elements.reviewPassword.value;const remember=$('rememberAccess').checked;message('Entrando…');try{const result=await request({action:'login'});sessionToken=result.sessionToken;reviewPassword='';storeAccess(result,remember);e.target.reset();await loadReports(0);showPanel('report');}catch(error){reviewPassword='';message(error.message);}finally{b.disabled=false;}};
 $('moreReports').onclick=async()=>{const b=$('moreReports');b.disabled=true;try{await loadReports(nextOffset);}catch(error){message(error.message);}finally{b.disabled=false;}};
-$('reviewLogout').onclick=()=>{reviewPassword='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','status','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;message('Sesión cerrada.');};
+$('reviewLogout').onclick=()=>{forgetAccess();lockAccess();message('Sesión cerrada y acceso guardado eliminado.');};
 resetReviewGroups();
+
+async function restoreAccess(){let saved=null;try{saved=JSON.parse(sessionStorage.getItem(ACCESS_KEY)||localStorage.getItem(ACCESS_KEY)||'null');}catch(ignored){}if(!saved)return;if(typeof saved.token!=='string'||!Number.isFinite(saved.expiresAt)||saved.expiresAt<=Date.now()){forgetAccess();return;}sessionToken=saved.token;message('Restaurando tu sesión…');try{await loadReports(0);if(sessionToken)showPanel('report');}catch(error){message(error.message+' Puedes volver a entrar si es necesario.');}}
+restoreAccess();

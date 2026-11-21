@@ -41,7 +41,7 @@ Opción sencilla: **Settings → Pages → Deploy from a branch → main → /(r
 
 ## Contraseña y seguridad
 
-La contraseña se comprueba en Google en cada operación. El navegador la conserva solo en memoria mientras está abierta la sesión. «Cerrar sesión» la elimina y borra de pantalla los reportes cargados. Cambia `REVIEW_PASSWORD` para revocar la anterior; no requiere republicar GitHub.
+La contraseña se comprueba en Google en cada operación. La contraseña se usa solo al entrar y no se guarda en el navegador. Google entrega una sesión firmada que dura siete días. «Recordar en este navegador» la conserva al cerrar y volver a abrir el navegador; si lo desmarcas, solo se conserva en la pestaña y resiste sus recargas. «Cerrar sesión» elimina el acceso guardado y borra de pantalla los reportes cargados. Cambiar la contraseña invalida también las sesiones anteriores. Cambia `REVIEW_PASSWORD` para revocar la anterior; no requiere republicar GitHub.
 
 GitHub Pages publica el código y la pantalla de acceso. Los reportes y las imágenes se obtienen del backend solo tras verificar la contraseña. Ocultar una sección en el navegador no se considera una protección; la comprobación real está en Apps Script.
 
@@ -82,6 +82,6 @@ Comprobación final manual:
 
 ## Transporte entre GitHub y Google
 
-Se envía un formulario POST a un iframe. Google devuelve una confirmación con `postMessage`; se comprueba un nonce aleatorio por solicitud y el origen HTTPS `*.googleusercontent.com`. No se usa un envío `no-cors` que indique éxito sin confirmar que el reporte se ha guardado. Si no llega respuesta en 60 segundos, la app conserva el formulario y el identificador de solicitud para reintentar durante esa sesión. No se guardan capturas ni contraseñas en almacenamiento local.
+Se envía un formulario POST a un iframe. Google devuelve una confirmación con `postMessage`; se comprueba un nonce aleatorio por solicitud y el origen HTTPS `*.googleusercontent.com`. No se usa un envío `no-cors` que indique éxito sin confirmar que el reporte se ha guardado. Si no llega respuesta en 60 segundos, la app conserva el formulario y el identificador de solicitud para reintentar durante esa sesión. No se guardan capturas ni contraseñas en almacenamiento local; únicamente la sesión firmada si eliges recordar el acceso.
 
 Documentación oficial: [Apps Script web apps](https://developers.google.com/apps-script/guides/web), [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site), [validación Turnstile](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).

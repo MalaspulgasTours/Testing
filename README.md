@@ -84,3 +84,7 @@ Se envía un formulario POST a un iframe. Google devuelve una confirmación con 
 
 Documentación oficial: [Apps Script web apps](https://developers.google.com/apps-script/guides/web), [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site), [validación Turnstile](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/).
 
+
+## Edición exclusiva de la propietaria
+
+Configura `OWNER_PASSWORD` en las propiedades privadas del script: entre 16 y 200 caracteres, distinta de `REVIEW_PASSWORD`. No se publica ni se guarda en el navegador. «Editar reporte» y «Editar título» la comprueban en el servidor en cada guardado. Si falta, la edición permanece bloqueada. El equipo conserva sus casillas y notas. Los cambios de contenido conservan referencia, fecha original, título y seguimiento; las capturas sustituidas se conservan en la carpeta privada para permitir recuperación.

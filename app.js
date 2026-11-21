@@ -62,14 +62,16 @@ function renderReport(report){
  const summary=document.createElement('summary');summary.append(textElement('strong',`${report.section} · ${report.status}`),textElement('span',REVIEW_LAYOUT.excerpt(report),'reportExcerpt'),textElement('span',`${({error:'Error',change:'Mejora',query:'Consulta'})[report.type]||report.type} · Impacto ${({high:'alto',medium:'medio',low:'bajo'})[report.impact]||report.impact} · ${new Date(report.createdAt).toLocaleString('es-ES')}`,'muted'));
  summary.querySelector('.reportExcerpt').title=REVIEW_LAYOUT.excerpt(report);
  summary.append(textElement('span','','reviewState'));details.append(summary);
+ const editReportButton=textElement('button','Editar reporte');editReportButton.type='button';editReportButton.onclick=()=>openReportEditor(report,details);details.append(editReportButton);
  const back=textElement('button','Volver al listado','reportBack');back.type='button';back.onclick=()=>{details.open=false;summary.focus({preventScroll:true});summary.scrollIntoView({behavior:'smooth',block:'center'});};details.append(back);
  const titleForm=document.createElement('form');titleForm.className='reportTitleForm';titleForm.hidden=true;
+ const ownerTitleLabel=textElement('label','Contraseña privada de edición');const ownerTitleInput=document.createElement('input');ownerTitleInput.type='password';ownerTitleInput.required=true;ownerTitleInput.maxLength=200;ownerTitleInput.autocomplete='current-password';ownerTitleLabel.append(ownerTitleInput);titleForm.append(ownerTitleLabel);
  const titleLabel=textElement('label','Título del reporte');const titleInput=document.createElement('input');titleInput.type='text';titleInput.maxLength=160;titleInput.placeholder='Resumen breve del reporte';titleLabel.append(titleInput);
  const saveTitle=textElement('button','Guardar título','primary');saveTitle.type='submit';const automaticTitle=textElement('button','Usar resumen automático');automaticTitle.type='button';const cancelTitle=textElement('button','Cancelar');cancelTitle.type='button';const titleActions=document.createElement('div');titleActions.className='titleActions';titleActions.append(saveTitle,automaticTitle,cancelTitle);titleForm.append(titleLabel,titleActions);details.append(titleForm);
  const editTitle=textElement('button','Editar título','editTitleButton');editTitle.type='button';summary.append(editTitle);let wasOpen=false;
  editTitle.onclick=e=>{e.preventDefault();e.stopPropagation();wasOpen=details.open;details.open=true;titleForm.hidden=false;titleInput.value=report.title||REVIEW_LAYOUT.excerpt(report);titleInput.focus();titleInput.select();};
  cancelTitle.onclick=()=>{titleForm.hidden=true;details.open=wasOpen;};
- async function updateTitle(value){saveTitle.disabled=true;automaticTitle.disabled=true;cancelTitle.disabled=true;titleInput.disabled=true;try{const r=await request({action:'title',reportId:report.id,title:value,previousTitle:report.title||''});report.title=r.title;report.updatedAt=r.updatedAt;const preview=summary.querySelector('.reportExcerpt');preview.textContent=REVIEW_LAYOUT.excerpt(report);preview.title=preview.textContent;titleForm.hidden=true;details.open=wasOpen;message('Título guardado. Las notas originales no se han modificado.');}catch(error){message(error.message);}finally{saveTitle.disabled=false;automaticTitle.disabled=false;cancelTitle.disabled=false;titleInput.disabled=false;}}
+ async function updateTitle(value){saveTitle.disabled=true;automaticTitle.disabled=true;cancelTitle.disabled=true;titleInput.disabled=true;try{const r=await request({action:'title',ownerPassword:ownerTitleInput.value,reportId:report.id,title:value,previousTitle:report.title||''});report.title=r.title;report.updatedAt=r.updatedAt;const preview=summary.querySelector('.reportExcerpt');preview.textContent=REVIEW_LAYOUT.excerpt(report);preview.title=preview.textContent;ownerTitleInput.value='';titleForm.hidden=true;details.open=wasOpen;message('Título guardado. Las notas originales no se han modificado.');}catch(error){message(error.message);}finally{saveTitle.disabled=false;automaticTitle.disabled=false;cancelTitle.disabled=false;titleInput.disabled=false;}}
  titleForm.onsubmit=e=>{e.preventDefault();return updateTitle(titleInput.value);};automaticTitle.onclick=()=>updateTitle('');
  for(const [title,value] of [['Referencia',report.id],['Paso a paso',report.steps],['Resultado esperado',report.expected],['Resultado real',report.actual],['Dispositivo y navegador',report.device]])details.append(textElement('h3',title),textElement('p',value||'—','noteText'));
  if(report.hasScreenshot){const b=textElement('button','Ver captura');b.type='button';b.onclick=async()=>{b.disabled=true;message('Cargando captura…');try{const r=await request({action:'screenshot',reviewPassword,reportId:report.id});if(!['image/png','image/jpeg','image/webp'].includes(r.mime)||!/^[A-Za-z0-9+/]*={0,2}$/.test(r.data))throw new Error('Captura no válida.');const img=document.createElement('img');img.src=`data:${r.mime};base64,${r.data}`;img.alt='Captura del reporte '+report.id;img.className='reviewScreenshot';details.append(img);b.remove();message('');}catch(e){message(e.message);b.disabled=false;}};details.append(b);}
@@ -127,3 +129,33 @@ resetReviewGroups();
 
 async function restoreAccess(){let saved=null;try{saved=JSON.parse(sessionStorage.getItem(ACCESS_KEY)||localStorage.getItem(ACCESS_KEY)||'null');}catch(ignored){}if(!saved)return;if(typeof saved.token!=='string'||!Number.isFinite(saved.expiresAt)||saved.expiresAt<=Date.now()){forgetAccess();return;}sessionToken=saved.token;message('Restaurando tu sesión…');try{await loadReports(0);if(sessionToken)showPanel('report');}catch(error){message(error.message+' Puedes volver a entrar si es necesario.');}}
 restoreAccess();
+
+function openReportEditor(report,details){
+ if(details.querySelector('.ownerReportEditor'))return;
+ const form=document.createElement('form');form.className='ownerReportEditor';form.append(textElement('h3','Editar reporte · solo propietaria'));
+ const fields={};
+ function add(name,label,value,kind='input',options=null){const l=textElement('label',label),input=document.createElement(kind);input.name=name;if(options)for(const [v,t] of options){const option=document.createElement('option');option.value=v;option.textContent=t;input.append(option);}input.value=value||'';input.required=true;l.append(input);form.append(l);fields[name]=input;return input;}
+ add('type','Tipo',report.type,'select',[['error','Error'],['change','Cambio / mejora'],['query','Consulta']]);
+ add('section','Pantalla / sección',report.section).maxLength=100;
+ add('steps','Qué estabas haciendo, paso a paso',report.steps,'textarea').maxLength=6000;
+ add('expected','Qué esperabas que pasara',report.expected,'textarea').maxLength=4000;
+ add('actual','Qué pasó en realidad',report.actual,'textarea').maxLength=4000;
+ add('impact','Cuánto te afecta',report.impact,'select',[['high','Alto'],['medium','Medio'],['low','Bajo']]);
+ add('device','Dispositivo y navegador',report.device||DEFAULT_DEVICE).maxLength=500;
+ const imageLabel=textElement('label','Sustituir captura (opcional; si no eliges otra, se conserva la actual)');const file=document.createElement('input');file.type='file';file.accept='image/png,image/jpeg,image/webp';imageLabel.append(file);form.append(imageLabel);
+ const removeLabel=textElement('label','Quitar la captura actual');const remove=document.createElement('input');remove.type='checkbox';removeLabel.prepend(remove);form.append(removeLabel);
+ let replacement=null;
+ file.onchange=async()=>{replacement=null;const selected=file.files[0];if(!selected)return;if(!['image/png','image/jpeg','image/webp'].includes(selected.type)||selected.size>3*1024*1024){file.value='';message('Elige una captura PNG, JPG o WebP de hasta 3 MB.');return;}try{const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(selected);});replacement={mime:selected.type,data:data.split(',')[1]};remove.checked=false;}catch(error){file.value='';message('No se pudo leer la captura.');}};
+ remove.onchange=()=>{if(remove.checked){replacement=null;file.value='';}};
+ const password=add('ownerPassword','Contraseña privada de edición','');password.type='password';password.maxLength=200;password.autocomplete='current-password';
+ const save=textElement('button','Guardar cambios','primary');save.type='submit';const cancel=textElement('button','Cancelar edición');cancel.type='button';cancel.onclick=()=>form.remove();form.append(save,cancel);
+ let attempt=null;
+ form.onsubmit=async e=>{e.preventDefault();save.disabled=true;cancel.disabled=true;try{
+ const data=Object.fromEntries(Object.entries(fields).map(([key,input])=>[key,input.value.trim()]));
+ if(!['Tours','Liquidación','Guías'].includes(data.section)){data.otherSection=data.section;data.section='Otra';}
+ const screenshotAction=replacement?'replace':remove.checked?'remove':'keep';const fingerprint=JSON.stringify([data,screenshotAction,replacement]);if(!attempt||attempt.fingerprint!==fingerprint)attempt={fingerprint,requestId:crypto.randomUUID()};
+ await request({action:'edit',...data,reportId:report.id,editVersion:report.editVersion,screenshotAction,image:replacement,requestId:attempt.requestId,website:''});
+ password.value='';form.remove();await loadReports(0);message('Cambios guardados. El seguimiento y las notas del equipo se conservan.');
+ }catch(error){message(error.message);}finally{save.disabled=false;cancel.disabled=false;}};
+ details.open=true;details.insertBefore(form,details.querySelector('.programmerNotes'));form.scrollIntoView({behavior:'smooth',block:'start'});
+}

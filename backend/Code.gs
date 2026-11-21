@@ -30,8 +30,8 @@ function doPost(e){
   if(p.origin!==origin||!validUuid(p.nonce))throw new Error('Solicitud no válida.');
   budget('requests',1000);
   requireReviewer(p,props);
-  response=p.action==='submit'?submitReport(p,props):p.action==='status'?lookup(p,props):p.action==='review'?reviewReports(p,props):p.action==='screenshot'?reviewScreenshot(p,props):p.action==='followup'?followup(p,props):fail('Acción no válida.');
- }catch(error){response={ok:false,error:error.publicMessage||'No se pudo procesar la solicitud. Comprueba los datos y la configuración.'};}
+  response=p.action==='login'?issueSession(p,props):p.action==='submit'?submitReport(p,props):p.action==='status'?lookup(p,props):p.action==='review'?reviewReports(p,props):p.action==='screenshot'?reviewScreenshot(p,props):p.action==='followup'?followup(p,props):fail('Acción no válida.');
+ }catch(error){response={ok:false,authRequired:!!error.authRequired,error:error.publicMessage||'No se pudo procesar la solicitud. Comprueba los datos y la configuración.'};}
  response.channel='feedback-v1';response.nonce=validUuid(p.nonce)?p.nonce:'';
  const json=JSON.stringify(response).replace(/</g,'\\u003c');
  return HtmlService.createHtmlOutput('<!doctype html><script>window.top.postMessage('+json+','+JSON.stringify(origin||'https://invalid.invalid')+');</script>').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -88,7 +88,37 @@ function lookup(p,props){
  return {ok:true,reportId:row[0],status:STATUSES.includes(row[10])?row[10]:'En revisión',updatedAt:row[11]};
 }
 
-function requireReviewer(p,props){const password=props.getProperty('REVIEW_PASSWORD');if(!password||password.length<16)fail('El acceso de revisión no está configurado.');if(typeof p.reviewPassword!=='string'||p.reviewPassword.length>200||hash(p.reviewPassword)!==hash(password))fail('Contraseña incorrecta.');}
+function authFailure(message){const error=new Error(message);error.publicMessage=message;error.authRequired=true;throw error;}
+function requirePassword(p,props){
+ const expected=props.getProperty('REVIEW_PASSWORD');
+ if(!expected||expected.length<16)authFailure('El acceso de revisión no está configurado.');
+ if(typeof p.reviewPassword!=='string'||p.reviewPassword.length>200||hash(p.reviewPassword)!==hash(expected))authFailure('Contraseña incorrecta.');
+}
+function sessionSignature(body,props){
+ const secret=props.getProperty('SESSION_SECRET'),password=props.getProperty('REVIEW_PASSWORD');
+ if(!secret||!password||password.length<16)authFailure('Vuelve a entrar para renovar tu sesión.');
+ return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature('feedback-session-v1.'+body,secret+':'+hash(password))).replace(/=+$/,'');
+}
+function equalSignature(a,b){if(a.length!==b.length)return false;let difference=0;for(let i=0;i<a.length;i++)difference|=a.charCodeAt(i)^b.charCodeAt(i);return difference===0;}
+function requireReviewer(p,props){
+ if(!p.sessionToken){requirePassword(p,props);return;}
+ try{
+  if(typeof p.sessionToken!=='string'||p.sessionToken.length>1000)throw new Error();
+  const parts=p.sessionToken.split('.');if(parts.length!==2||!parts.every(s=>/^[A-Za-z0-9_-]+$/.test(s)))throw new Error();
+  if(!equalSignature(parts[1],sessionSignature(parts[0],props)))throw new Error();
+  const data=JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
+  if(!Number.isFinite(data.expiresAt)||data.expiresAt<=Date.now()||!validUuid(data.nonce))throw new Error();
+ }catch(error){authFailure('Tu sesión ha caducado o ya no es válida. Vuelve a entrar.');}
+}
+function issueSession(p,props){
+ requirePassword(p,props);
+ const lock=LockService.getScriptLock();if(!lock.tryLock(10000))fail('Servicio ocupado. Inténtalo de nuevo.');
+ try{if(!props.getProperty('SESSION_SECRET'))props.setProperty('SESSION_SECRET',Utilities.getUuid()+Utilities.getUuid());}finally{lock.releaseLock();}
+ const expiresAt=Date.now()+7*24*60*60*1000;
+ const body=Utilities.base64EncodeWebSafe(JSON.stringify({expiresAt,nonce:Utilities.getUuid()})).replace(/=+$/,'');
+ return {ok:true,sessionToken:body+'.'+sessionSignature(body,props),expiresAt};
+}
+
 function reviewReports(p,props){
  requireReviewer(p,props);const offset=Number(p.offset||0);if(!Number.isInteger(offset)||offset<0||offset>100000)fail('Página no válida.');
  const rows=sheetFor(props).getDataRange().getValues().slice(1).filter(r=>r[0]).reverse(),notes=followupRows(props);

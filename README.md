@@ -38,7 +38,6 @@ Sube el contenido del proyecto a la raíz del repositorio `MalaspulgasTours/Test
 
 Opción sencilla: **Settings → Pages → Deploy from a branch → main → /(root) → Save**. El archivo `.nojekyll` permite servir los archivos estáticos directamente. La URL será la que GitHub confirme en esa pantalla.
 
-Opción alternativa: el flujo `.github/workflows/pages.yml` ejecuta las pruebas y publica únicamente `index.html`, `style.css`, `app.js` y `config.js`. Para utilizarlo, elige **GitHub Actions** como fuente en Pages. No uses las dos opciones a la vez.
 
 ## Contraseña y seguridad
 

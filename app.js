@@ -46,23 +46,23 @@ $('reportForm').onsubmit=async e=>{
 };
 if(config.turnstileSiteKey){window.feedbackChallengeReady=()=>{widget=turnstile.render('#challenge',{sitekey:config.turnstileSiteKey,action:'feedback',language:'es'});};const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?onload=feedbackChallengeReady&render=explicit';script.async=true;script.onerror=()=>message('No se pudo cargar la verificación. Recarga la página.');document.head.append(script);}else if(!config.endpoint) message('Vista previa: falta conectar el servicio de reportes.');
 
-let reviewPassword='', sessionToken='', nextOffset=null, accessRole='team';
+let reviewPassword='', sessionToken='', nextOffset=null, accessRole='team', viewingDeleted=false;
 const ACCESS_KEY='feedback-access-v1';
 function forgetAccess(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem(ACCESS_KEY);}catch(ignored){}}}
 function storeAccess(result,remember){forgetAccess();const value=JSON.stringify({token:result.sessionToken,expiresAt:result.expiresAt});try{(remember?localStorage:sessionStorage).setItem(ACCESS_KEY,value);}catch(ignored){message('El navegador no permite guardar la sesión.');}}
-function lockAccess(){accessRole='team';reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
+function lockAccess(){viewingDeleted=false;accessRole='team';reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
 const reviewCards=new Map();
-function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.groups){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p',impact.key==='fixed'?'No hay reportes solucionados.':'No hay reportes pendientes con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
+function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();if(viewingDeleted){$('reportList').append(textElement('h3','Reportes borrados'));return;}for(const impact of REVIEW_LAYOUT.groups){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p',impact.key==='fixed'?'No hay reportes solucionados.':'No hay reportes pendientes con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
 function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const resolved=details.querySelector('.resolvedDate');resolved.hidden=report.status!=='Resuelto'||!report.resolvedAt;resolved.textContent=resolved.hidden?'':'Solucionado el '+new Date(report.resolvedAt).toLocaleString('es-ES');const group=$('impact-'+REVIEW_LAYOUT.group(report));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.groups){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}
 $('reviewTab').onclick=async()=>{showPanel('review');try{await loadReports(0);}catch(error){message(error.message);}};
 function textElement(tag,text,className){const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element;}
 function renderReport(report){
- if(reviewCards.has(report.id))return;
+ if(reviewCards.has(report.id))return;if(viewingDeleted){const card=document.createElement('div');card.className='reportCard';card.append(textElement('strong',report.section+' · '+REVIEW_LAYOUT.excerpt(report)),textElement('p','Borrado el '+new Date(report.deletedAt).toLocaleString('es-ES'),'muted'));const restore=textElement('button','Recuperar reporte');restore.type='button';restore.onclick=()=>changeDeletion(report,false,restore);card.append(restore);$('reportList').append(card);reviewCards.set(report.id,{report,details:card});return;}
  const details=document.createElement('details');details.className='reportCard';details.dataset.reportId=report.id;
  const summary=document.createElement('summary');summary.append(textElement('strong',`${report.section} · ${report.status}`),textElement('span',REVIEW_LAYOUT.excerpt(report),'reportExcerpt'),textElement('span',`${({error:'Error',change:'Mejora',query:'Consulta'})[report.type]||report.type} · Impacto ${({high:'alto',medium:'medio',low:'bajo'})[report.impact]||report.impact} · ${new Date(report.createdAt).toLocaleString('es-ES')}`,'muted'));
  summary.querySelector('.reportExcerpt').title=REVIEW_LAYOUT.excerpt(report);
  summary.append(textElement('span','','reviewState'),textElement('span','','resolvedDate muted'));details.append(summary);
- const editReportButton=textElement('button','Editar reporte');editReportButton.type='button';editReportButton.onclick=()=>openReportEditor(report,details);editReportButton.hidden=accessRole!=='owner';details.append(editReportButton);
+ const editReportButton=textElement('button','Editar reporte');editReportButton.type='button';editReportButton.onclick=()=>openReportEditor(report,details);editReportButton.hidden=accessRole!=='owner';details.append(editReportButton);if(accessRole==='owner'){const remove=textElement('button','Borrar reporte');remove.type='button';remove.onclick=()=>{if(window.confirm('¿Borrar este reporte? Desaparecerá del listado del equipo. Podrás recuperarlo en «Reportes borrados».'))return changeDeletion(report,true,remove);};details.append(remove);}
  const back=textElement('button','Volver al listado','reportBack');back.type='button';back.onclick=()=>{details.open=false;summary.focus({preventScroll:true});summary.scrollIntoView({behavior:'smooth',block:'center'});};details.append(back);
  const titleForm=document.createElement('form');titleForm.className='reportTitleForm';titleForm.hidden=true;
  const titleLabel=textElement('label','Título del reporte');const titleInput=document.createElement('input');titleInput.type='text';titleInput.maxLength=160;titleInput.placeholder='Resumen breve del reporte';titleLabel.append(titleInput);
@@ -115,11 +115,11 @@ async function loadReports(offset){
  const sessionPassword=sessionToken||reviewPassword;
  let total=0;
  do {
-  const r=await request({action:'review',reviewPassword,offset});
+  const r=await request({action:'review',reviewPassword,offset,deleted:viewingDeleted});
   if(!sessionPassword||(sessionToken||reviewPassword)!==sessionPassword)return;
-  accessRole=r.role==='owner'?'owner':'team';$('accessRole').textContent=accessRole==='owner'?'Sesión de propietaria · puedes editar':'Sesión del equipo';if(offset===0)resetReviewGroups();
+  accessRole=r.role==='owner'?'owner':'team';$('trashToggle').hidden=accessRole!=='owner';$('trashToggle').textContent=viewingDeleted?'Volver a reportes activos':'Reportes borrados';$('accessRole').textContent=accessRole==='owner'?'Sesión de propietaria · puedes editar':'Sesión del equipo';if(offset===0)resetReviewGroups();
   r.reports.forEach(renderReport);total=r.total;nextOffset=r.nextOffset;
-  $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${reviewCards.size} de ${total} reportes · pendientes por impacto y solucionados al final`;
+  $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=viewingDeleted?`${reviewCards.size} de ${total} reportes borrados`:`${reviewCards.size} de ${total} reportes · pendientes por impacto y solucionados al final`;
   $('accessPanel').hidden=true;$('appNav').hidden=false;$('reviewContent').hidden=false;
   if(nextOffset!==null){message('Cargando el resto de los reportes…');offset=nextOffset;}
  } while(nextOffset!==null);
@@ -175,3 +175,6 @@ function commentAttachment(form,save){
  form.addEventListener('paste',event=>{const item=[...event.clipboardData.items].find(i=>i.kind==='file'&&i.type.startsWith('image/'));if(item){event.preventDefault();event.stopPropagation();select(item.getAsFile());}});
  return state;
 }
+
+async function changeDeletion(report,deleted,button){button.disabled=true;try{await request({action:'delete',reportId:report.id,deleted});await loadReports(0);message(deleted?'Reporte borrado. Puedes recuperarlo en «Reportes borrados».':'Reporte recuperado con sus comentarios y capturas.');}catch(error){message(error.message);}finally{button.disabled=false;}}
+$('trashToggle').onclick=async()=>{if(accessRole!=='owner')return;viewingDeleted=!viewingDeleted;try{await loadReports(0);}catch(error){message(error.message);}};

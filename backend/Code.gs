@@ -126,7 +126,7 @@ function issueSession(p,props){
 function reviewReports(p,props){
  requireReviewer(p,props);const offset=Number(p.offset||0);if(!Number.isInteger(offset)||offset<0||offset>100000)fail('Página no válida.');
  const rows=sheetFor(props).getDataRange().getValues().slice(1).filter(r=>r[0]).reverse(),notes=followupRows(props);
- const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],reviewed:r[14]===true,title:String(r[15]||''),editVersion:hash(JSON.stringify(r.slice(2,10))),notes:followupNotes(notes,r[0])}));
+ const reports=rows.slice(offset,offset+20).map(r=>({id:r[0],createdAt:r[1],type:r[2],section:r[3],steps:r[4],expected:r[5],actual:r[6],impact:r[7],device:r[8],hasScreenshot:!!r[9],status:STATUSES.includes(r[10])?r[10]:'En revisión',updatedAt:r[11],resolvedAt:r[10]==='Resuelto'?resolutionDate(notes,r[0],r[11]):'',reviewed:r[14]===true,title:String(r[15]||''),editVersion:hash(JSON.stringify(r.slice(2,10))),notes:followupNotes(notes,r[0])}));
  return {ok:true,role:requireReviewer(p,props),reports:reports,total:rows.length,nextOffset:offset+reports.length<rows.length?offset+reports.length:null};
 }
 function reviewScreenshot(p,props){
@@ -150,7 +150,7 @@ function followup(p,props){
  follow.getRange(1,7).setValue('Screenshot');follow.appendRow([id,new Date().toISOString(),safeCell(note),p.requestId,p.reviewed,p.fixed,file?file.getUrl():'']);committed=true;SpreadsheetApp.flush();}
  const selected=old||[id,new Date().toISOString(),note,p.requestId,p.reviewed,p.fixed],newer=old&&entries.slice(entries.indexOf(old)+1).some(r=>r[0]===id);
  if(!newer){sheet.getRange(index+1,11).setValue(selected[5]?'Resuelto':selected[4]?'En revisión':'Nuevo');sheet.getRange(index+1,12).setValue(selected[1]);sheet.getRange(index+1,15).setValue(selected[4]);SpreadsheetApp.flush();}
- return {ok:true,status:sheet.getRange(index+1,11).getValue(),notes:followupNotes(followupRows(props),id)};
+ return {ok:true,status:sheet.getRange(index+1,11).getValue(),updatedAt:sheet.getRange(index+1,12).getValue(),resolvedAt:resolutionDate(followupRows(props),id,''),notes:followupNotes(followupRows(props),id)};
  }catch(error){if(file&&!committed){try{file.setTrashed(true);}catch(ignored){}}throw error;}finally{lock.releaseLock();}
 }
 function queueNotification(props,id){const sheet=SpreadsheetApp.openById(props.getProperty('SPREADSHEET_ID')).getSheetByName('Notifications');if(!sheet.getDataRange().getValues().slice(1).some(r=>r[0]===id))sheet.appendRow([id,new Date().toISOString(),'',0,'']);}
@@ -209,3 +209,5 @@ function editReport(p,props){
 }
 
 function followupNotes(rows,id){return rows.filter(n=>n[0]===id&&(n[2]||n[6])).map(n=>({id:n[3],createdAt:n[1],text:n[2]||'',hasScreenshot:!!n[6]}));}
+
+function resolutionDate(rows,id,fallback){let fixed=false,resolvedAt='';for(const row of rows){if(row[0]!==id)continue;const next=row[5]===true;if(next&&!fixed)resolvedAt=row[1];if(!next)resolvedAt='';fixed=next;}return fixed?resolvedAt:(fallback||'');}

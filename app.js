@@ -97,7 +97,7 @@ function renderReport(report){
   message('Guardando seguimiento…');
   try{
    const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});
-   showNotes(result.notes);report.updatedAt=new Date().toISOString();report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
+   showNotes(result.notes);report.updatedAt=result.updatedAt;report.resolvedAt=result.resolvedAt;report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
    reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
    if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';

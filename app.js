@@ -79,16 +79,17 @@ function renderReport(report){
  const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=report.status==='Resuelto';
  const reviewedLabel=textElement('label','Revisado');reviewedLabel.prepend(reviewed);
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
- const noteLabel=textElement('label','Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder='Qué se ha revisado o solucionado…';noteLabel.append(note);
+ const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);
  const save=textElement('button','Guardar seguimiento','primary');save.type='submit';changes.append(reviewedLabel,fixedLabel,noteLabel,save);
+ const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}reviewed.checked=false;fixed.checked=false;return saveChanges(true,true);};
  const history=document.createElement('div');history.className='noteHistory';
  function showNotes(notes){history.replaceChildren();for(const n of notes){history.append(textElement('p',new Date(n.createdAt).toLocaleString('es-ES')+' · '+n.text,'noteText'));}}
- showNotes(report.notes||[]);details.append(textElement('h3','Notas del programador'),history,changes);
+ showNotes(report.notes||[]);details.append(textElement('h3','Comentarios y seguimiento'),history,changes);
  let updateAttempt=null;
- async function saveChanges(includeNote){
+ async function saveChanges(includeNote,reopening=false){
   if(save.disabled)return;
-  save.disabled=true;reviewed.disabled=true;fixed.disabled=true;
-  const change={reviewed:reviewed.checked,fixed:fixed.checked,note:includeNote?note.value:''};
+  save.disabled=true;reopen.disabled=true;reviewed.disabled=true;fixed.disabled=true;
+  const change={reviewed:reviewed.checked,fixed:fixed.checked,note:includeNote?(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value):''};
   const fingerprint=JSON.stringify(change);
   if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};
   message('Guardando seguimiento…');
@@ -97,10 +98,10 @@ function renderReport(report){
    showNotes(result.notes);report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
    reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
-   if(includeNote&&note.value===change.note)note.value='';
-   updateAttempt=null;message(fixed.checked?'Reporte solucionado: aparece en verde al final de su sección.':'Seguimiento guardado. El reporte original no se ha modificado.');
+   if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';
+   updateAttempt=null;message(reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde al final de su sección.':'Seguimiento guardado. El reporte original no se ha modificado.');
   }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';message(error.message);}
-  finally{save.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
+  finally{save.disabled=false;reopen.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
  }
  fixed.onchange=()=>{if(fixed.checked)reviewed.checked=true;return saveChanges(false);};
  reviewed.onchange=()=>{if(!reviewed.checked)fixed.checked=false;return saveChanges(false);};

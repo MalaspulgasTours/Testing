@@ -52,8 +52,8 @@ function forgetAccess(){for(const storage of [localStorage,sessionStorage]){try{
 function storeAccess(result,remember){forgetAccess();const value=JSON.stringify({token:result.sessionToken,expiresAt:result.expiresAt});try{(remember?localStorage:sessionStorage).setItem(ACCESS_KEY,value);}catch(ignored){message('El navegador no permite guardar la sesión.');}}
 function lockAccess(){accessRole='team';reviewPassword='';sessionToken='';nextOffset=null;reviewCards.clear();$('reportList').replaceChildren();$('reviewLogin').reset();$('accessPanel').hidden=false;$('appNav').hidden=true;for(const key of ['report','review'])$(key+'Panel').hidden=true;$('reviewContent').hidden=true;}
 const reviewCards=new Map();
-function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.impacts){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p','No hay reportes cargados con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
-function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const group=$('impact-'+(REVIEW_LAYOUT.impacts.some(x=>x.key===report.impact)?report.impact:'medium'));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.impacts){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}
+function resetReviewGroups(){reviewCards.clear();$('reportList').replaceChildren();for(const impact of REVIEW_LAYOUT.groups){const group=document.createElement('div');group.className='impactGroup';group.id='impact-'+impact.key;const heading=textElement('h3',impact.label);const count=textElement('span','0 reportes','impactCount');heading.append(count);const cards=document.createElement('div');cards.className='impactCards';const empty=textElement('p',impact.key==='fixed'?'No hay reportes solucionados.':'No hay reportes pendientes con este impacto.','muted impactEmpty');group.append(heading,cards,empty);$('reportList').append(group);}}
+function positionReviewCard(report,details){const state=REVIEW_LAYOUT.state(report);details.className='reportCard state-'+state.key;details.querySelector('.reviewState').textContent=state.label;const group=$('impact-'+REVIEW_LAYOUT.group(report));const container=group.querySelector('.impactCards');const before=[...container.children].find(card=>card!==details&&REVIEW_LAYOUT.compare(report,reviewCards.get(card.dataset.reportId).report)<0);container.insertBefore(details,before||null);for(const impact of REVIEW_LAYOUT.groups){const g=$('impact-'+impact.key),count=g.querySelector('.impactCards').children.length;g.querySelector('.impactCount').textContent=count+' '+(count===1?'reporte':'reportes');g.querySelector('.impactEmpty').hidden=count>0;}}
 $('reviewTab').onclick=async()=>{showPanel('review');try{await loadReports(0);}catch(error){message(error.message);}};
 function textElement(tag,text,className){const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element;}
 function renderReport(report){
@@ -97,12 +97,12 @@ function renderReport(report){
   message('Guardando seguimiento…');
   try{
    const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});
-   showNotes(result.notes);report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
+   showNotes(result.notes);report.updatedAt=new Date().toISOString();report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
    reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
    if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';
    if(includeNote&&attachment.image===change.image)attachment.clear();
-   updateAttempt=null;message(reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde al final de su sección.':'Seguimiento guardado. El reporte original no se ha modificado.');
+   updateAttempt=null;message(reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde en la sección «Solucionados», al final de la página.':'Seguimiento guardado. El reporte original no se ha modificado.');
   }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';message(error.message);}
   finally{save.disabled=false;reopen.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
  }
@@ -119,7 +119,7 @@ async function loadReports(offset){
   if(!sessionPassword||(sessionToken||reviewPassword)!==sessionPassword)return;
   accessRole=r.role==='owner'?'owner':'team';$('accessRole').textContent=accessRole==='owner'?'Sesión de propietaria · puedes editar':'Sesión del equipo';if(offset===0)resetReviewGroups();
   r.reports.forEach(renderReport);total=r.total;nextOffset=r.nextOffset;
-  $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${reviewCards.size} de ${total} reportes · agrupados por impacto`;
+  $('moreReports').hidden=nextOffset===null;$('reportCount').textContent=`${reviewCards.size} de ${total} reportes · pendientes por impacto y solucionados al final`;
   $('accessPanel').hidden=true;$('appNav').hidden=false;$('reviewContent').hidden=false;
   if(nextOffset!==null){message('Cargando el resto de los reportes…');offset=nextOffset;}
  } while(nextOffset!==null);

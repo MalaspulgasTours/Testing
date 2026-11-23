@@ -81,15 +81,17 @@ function renderReport(report){
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
  const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);
  const save=textElement('button','Guardar seguimiento','primary');save.type='submit';changes.append(reviewedLabel,fixedLabel,noteLabel,save);
- const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}reviewed.checked=false;fixed.checked=false;return saveChanges(true,true);};
+ const attachment=commentAttachment(changes,save);changes.insertBefore(attachment.box,save);
+ const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(attachment.reading){message('Espera a que termine de cargar la captura.');return;}if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}reviewed.checked=false;fixed.checked=false;return saveChanges(true,true);};
  const history=document.createElement('div');history.className='noteHistory';
- function showNotes(notes){history.replaceChildren();for(const n of notes){history.append(textElement('p',new Date(n.createdAt).toLocaleString('es-ES')+' · '+n.text,'noteText'));}}
+ function showNotes(notes){history.replaceChildren();for(const n of notes){history.append(textElement('p',new Date(n.createdAt).toLocaleString('es-ES')+' · '+n.text,'noteText'));if(n.hasScreenshot){const view=textElement('button','Ver captura del comentario');view.type='button';view.onclick=async()=>{view.disabled=true;try{const r=await request({action:'screenshot',reportId:report.id,noteId:n.id});if(!['image/png','image/jpeg','image/webp'].includes(r.mime)||!/^[A-Za-z0-9+/]*={0,2}$/.test(r.data))throw Error('Captura no válida.');const img=document.createElement('img');img.src='data:'+r.mime+';base64,'+r.data;img.alt='Captura del comentario';img.className='reviewScreenshot';view.replaceWith(img);}catch(error){message(error.message);view.disabled=false;}};history.append(view);}}}
  showNotes(report.notes||[]);details.append(textElement('h3','Comentarios y seguimiento'),history,changes);
  let updateAttempt=null;
  async function saveChanges(includeNote,reopening=false){
-  if(save.disabled)return;
+  if(save.disabled)return;if(includeNote&&attachment.reading){message('Espera a que termine de cargar la captura.');return;}
   save.disabled=true;reopen.disabled=true;reviewed.disabled=true;fixed.disabled=true;
   const change={reviewed:reviewed.checked,fixed:fixed.checked,note:includeNote?(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value):''};
+  if(includeNote)change.image=attachment.image;
   const fingerprint=JSON.stringify(change);
   if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};
   message('Guardando seguimiento…');
@@ -99,6 +101,7 @@ function renderReport(report){
    reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
    if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';
+   if(includeNote&&attachment.image===change.image)attachment.clear();
    updateAttempt=null;message(reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde al final de su sección.':'Seguimiento guardado. El reporte original no se ha modificado.');
   }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';message(error.message);}
   finally{save.disabled=false;reopen.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
@@ -158,4 +161,17 @@ function openReportEditor(report,details){
  form.remove();await loadReports(0);message('Cambios guardados. El seguimiento y las notas del equipo se conservan.');
  }catch(error){message(error.message);}finally{save.disabled=false;cancel.disabled=false;}};
  details.open=true;details.insertBefore(form,details.querySelector('.programmerNotes'));form.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function commentAttachment(form,save){
+ const box=document.createElement('div');box.className='commentAttachment';
+ const label=textElement('label','Captura para este comentario (opcional)');const file=document.createElement('input');file.type='file';file.accept='image/png,image/jpeg,image/webp';label.append(file);
+ const hint=textElement('p','Pega con Ctrl+V dentro del comentario o selecciona un archivo. PNG, JPG o WebP · hasta 3 MB.','muted');
+ const preview=document.createElement('img');preview.alt='Captura adjunta al comentario';preview.className='reviewScreenshot';preview.hidden=true;
+ const remove=textElement('button','Quitar captura del comentario');remove.type='button';remove.hidden=true;box.append(label,hint,preview,remove);
+ let version=0;const state={box,image:null,reading:false,clear(){version++;state.image=null;state.reading=false;file.value='';preview.removeAttribute('src');preview.hidden=true;remove.hidden=true;}};
+ async function select(selected){if(!selected)return;if(save.disabled){message('Espera a que termine el guardado.');return;}if(!['image/png','image/jpeg','image/webp'].includes(selected.type)||selected.size>3*1024*1024){message('Elige una imagen PNG, JPG o WebP de hasta 3 MB.');file.value='';return;}const current=++version;state.reading=true;try{const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(selected);});if(current!==version)return;state.image={mime:selected.type,data:data.split(',')[1]};preview.src=data;preview.hidden=false;remove.hidden=false;message('Captura preparada. Se adjuntará al guardar el comentario o solicitar nueva revisión.');}catch(error){if(current===version)message('No se pudo leer la captura.');}finally{if(current===version)state.reading=false;}}
+ file.onchange=()=>select(file.files[0]);remove.onclick=()=>{if(!save.disabled)state.clear();};
+ form.addEventListener('paste',event=>{const item=[...event.clipboardData.items].find(i=>i.kind==='file'&&i.type.startsWith('image/'));if(item){event.preventDefault();event.stopPropagation();select(item.getAsFile());}});
+ return state;
 }

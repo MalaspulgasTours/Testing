@@ -141,15 +141,15 @@ function reviewScreenshot(p,props){
 function followupRows(props){return SpreadsheetApp.openById(props.getProperty('SPREADSHEET_ID')).getSheetByName('Followup').getDataRange().getValues().slice(1);}
 function followup(p,props){
  requireReviewer(p,props);const id=textField(p,'reportId',50),note=textField(p,'note',2000,true);if(typeof p.reviewed!=='boolean'||typeof p.fixed!=='boolean'||!validUuid(p.requestId))fail('Seguimiento no válido.');
- const bytes=validateImage(p.image);
+ const bytes=validateImage(p.image),hasComment=!!note||!!bytes,reviewed=hasComment?false:p.reviewed,fixed=hasComment?false:p.fixed;
  const lock=LockService.getScriptLock();if(!lock.tryLock(20000))fail('Servicio ocupado. Inténtalo de nuevo.');
  let file=null,committed=false;
  try{
  const ss=SpreadsheetApp.openById(props.getProperty('SPREADSHEET_ID')),sheet=ss.getSheetByName('Reports');const rows=sheet.getDataRange().getValues(),index=rows.findIndex((r,i)=>i>0&&r[0]===id&&!r[17]);if(index<1)fail('Reporte no encontrado.');
  const follow=ss.getSheetByName('Followup'),entries=follow.getDataRange().getValues().slice(1),old=entries.find(r=>r[3]===p.requestId);if(old&&old[0]!==id)fail('Solicitud no válida.');
  if(!old){if(entries.filter(r=>r[0]===id).length>=200)fail('Este reporte ha alcanzado el límite de seguimientos.');if(bytes)file=DriveApp.getFolderById(props.getProperty('FOLDER_ID')).createFile(Utilities.newBlob(bytes,p.image.mime,id+'-'+p.requestId+'.'+({'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[p.image.mime])));
- follow.getRange(1,7).setValue('Screenshot');follow.appendRow([id,new Date().toISOString(),safeCell(note),p.requestId,p.reviewed,p.fixed,file?file.getUrl():'']);committed=true;SpreadsheetApp.flush();}
- const selected=old||[id,new Date().toISOString(),note,p.requestId,p.reviewed,p.fixed],newer=old&&entries.slice(entries.indexOf(old)+1).some(r=>r[0]===id);
+ follow.getRange(1,7).setValue('Screenshot');follow.appendRow([id,new Date().toISOString(),safeCell(note),p.requestId,reviewed,fixed,file?file.getUrl():'']);committed=true;SpreadsheetApp.flush();}
+ const selected=old||[id,new Date().toISOString(),note,p.requestId,reviewed,fixed],newer=old&&entries.slice(entries.indexOf(old)+1).some(r=>r[0]===id);
  if(!newer){sheet.getRange(index+1,11).setValue(selected[5]?'Resuelto':selected[4]?'En revisión':'Nuevo');sheet.getRange(index+1,12).setValue(selected[1]);sheet.getRange(index+1,15).setValue(selected[4]);SpreadsheetApp.flush();}
  return {ok:true,status:sheet.getRange(index+1,11).getValue(),updatedAt:sheet.getRange(index+1,12).getValue(),resolvedAt:resolutionDate(followupRows(props),id,''),notes:followupNotes(followupRows(props),id)};
  }catch(error){if(file&&!committed){try{file.setTrashed(true);}catch(ignored){}}throw error;}finally{lock.releaseLock();}

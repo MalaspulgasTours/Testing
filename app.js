@@ -79,7 +79,7 @@ function renderReport(report){
  const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=report.status==='Resuelto';
  const reviewedLabel=textElement('label','Revisado');reviewedLabel.prepend(reviewed);
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
- const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);
+ const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);noteLabel.append(textElement('span','Guardar un comentario o una captura devuelve el reporte a pendiente de revisión.','muted'));
  const save=textElement('button','Guardar seguimiento','primary');save.type='submit';changes.append(reviewedLabel,fixedLabel,noteLabel,save);
  const attachment=commentAttachment(changes,save);changes.insertBefore(attachment.box,save);
  const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(attachment.reading){message('Espera a que termine de cargar la captura.');return;}if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}reviewed.checked=false;fixed.checked=false;return saveChanges(true,true);};
@@ -102,7 +102,7 @@ function renderReport(report){
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
    if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';
    if(includeNote&&attachment.image===change.image)attachment.clear();
-   updateAttempt=null;message(reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde en la sección «Solucionados», al final de la página.':'Seguimiento guardado. El reporte original no se ha modificado.');
+   updateAttempt=null;message(includeNote&&(change.note.trim()||change.image)?'Comentario guardado. El reporte vuelve a pendiente en rojo, en su impacto original.':reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde en la sección «Solucionados», al final de la página.':'Seguimiento guardado. El reporte original no se ha modificado.');
   }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';message(error.message);}
   finally{save.disabled=false;reopen.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
  }

@@ -77,10 +77,10 @@ function renderReport(report){
  const changes=document.createElement('form');changes.className='programmerNotes';
  const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.checked=report.reviewed||report.status==='Resuelto';
  const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=report.status==='Resuelto';
- const followed=document.createElement('input');followed.type='checkbox';followed.checked=report.followed!==false;const followedLabel=textElement('label','Seguimiento');followedLabel.prepend(followed);
+ const followed=document.createElement('input');followed.type='checkbox';followed.checked=report.followed!==false;const followedLabel=textElement('label','Seguimiento');followedLabel.prepend(followed);followedLabel.hidden=REVIEW_LAYOUT.state(report).key!=='followup';followedLabel.append(textElement('span','Marca esta casilla cuando hayas atendido el nuevo comentario. El reporte volverá a Solucionados.','muted'));
  const reviewedLabel=textElement('label','Revisado');reviewedLabel.prepend(reviewed);
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
- const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);noteLabel.append(textElement('span','Un comentario o captura desmarca Seguimiento. Si está solucionado, vuelve a su impacto en azul y conserva Revisado y Solucionado.','muted'));
+ const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);noteLabel.append(textElement('span','En un reporte solucionado, un comentario o captura abre un seguimiento pendiente en azul y conserva Revisado y Solucionado.','muted'));
  const save=textElement('button','Guardar seguimiento','primary');save.type='submit';changes.append(reviewedLabel,fixedLabel,followedLabel,noteLabel,save);
  const attachment=commentAttachment(changes,save);changes.insertBefore(attachment.box,save);
  const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(attachment.reading){message('Espera a que termine de cargar la captura.');return;}if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}followed.checked=false;return saveChanges(true,true);};
@@ -99,7 +99,7 @@ function renderReport(report){
   try{
    const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});
    showNotes(result.notes);report.updatedAt=result.updatedAt;report.resolvedAt=result.resolvedAt;report.status=result.status;report.reviewed=result.reviewed;report.followed=result.followed;
-   reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';followed.checked=report.followed;
+   reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';followed.checked=report.followed;followedLabel.hidden=REVIEW_LAYOUT.state(report).key!=='followup';
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
    if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';
    if(includeNote&&attachment.image===change.image)attachment.clear();

@@ -77,36 +77,38 @@ function renderReport(report){
  const changes=document.createElement('form');changes.className='programmerNotes';
  const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.checked=report.reviewed||report.status==='Resuelto';
  const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=report.status==='Resuelto';
+ const followed=document.createElement('input');followed.type='checkbox';followed.checked=report.followed!==false;const followedLabel=textElement('label','Seguimiento');followedLabel.prepend(followed);
  const reviewedLabel=textElement('label','Revisado');reviewedLabel.prepend(reviewed);
  const fixedLabel=textElement('label','Solucionado');fixedLabel.prepend(fixed);
- const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);noteLabel.append(textElement('span','Guardar un comentario o una captura devuelve el reporte a pendiente de revisión.','muted'));
- const save=textElement('button','Guardar seguimiento','primary');save.type='submit';changes.append(reviewedLabel,fixedLabel,noteLabel,save);
+ const noteLabel=textElement('label',accessRole==='owner'?'Añadir un comentario de pruebas':'Añadir una nota del programador');const note=document.createElement('textarea');note.maxLength=2000;note.placeholder=accessRole==='owner'?'Explica qué sigue fallando o qué deben revisar de nuevo…':'Qué se ha revisado o solucionado…';noteLabel.append(note);noteLabel.append(textElement('span','Un comentario o captura desmarca Seguimiento. Si está solucionado, vuelve a su impacto en azul y conserva Revisado y Solucionado.','muted'));
+ const save=textElement('button','Guardar seguimiento','primary');save.type='submit';changes.append(reviewedLabel,fixedLabel,followedLabel,noteLabel,save);
  const attachment=commentAttachment(changes,save);changes.insertBefore(attachment.box,save);
- const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(attachment.reading){message('Espera a que termine de cargar la captura.');return;}if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}reviewed.checked=false;fixed.checked=false;return saveChanges(true,true);};
+ const reopen=textElement('button','Solicitar nueva revisión');reopen.type='button';reopen.hidden=accessRole!=='owner';changes.append(reopen);reopen.onclick=()=>{if(save.disabled)return;if(attachment.reading){message('Espera a que termine de cargar la captura.');return;}if(!note.value.trim()){message('Añade un comentario explicando qué necesita otra revisión.');note.focus();return;}if(note.value.trim().length>1969){message('Acorta el comentario a 1969 caracteres para solicitar una nueva revisión.');return;}followed.checked=false;return saveChanges(true,true);};
  const history=document.createElement('div');history.className='noteHistory';
  function showNotes(notes){history.replaceChildren();for(const n of notes){history.append(textElement('p',new Date(n.createdAt).toLocaleString('es-ES')+' · '+n.text,'noteText'));if(n.hasScreenshot){const view=textElement('button','Ver captura del comentario');view.type='button';view.onclick=async()=>{view.disabled=true;try{const r=await request({action:'screenshot',reportId:report.id,noteId:n.id});if(!['image/png','image/jpeg','image/webp'].includes(r.mime)||!/^[A-Za-z0-9+/]*={0,2}$/.test(r.data))throw Error('Captura no válida.');const img=document.createElement('img');img.src='data:'+r.mime+';base64,'+r.data;img.alt='Captura del comentario';img.className='reviewScreenshot';view.replaceWith(img);}catch(error){message(error.message);view.disabled=false;}};history.append(view);}}}
  showNotes(report.notes||[]);details.append(textElement('h3','Comentarios y seguimiento'),history,changes);
  let updateAttempt=null;
  async function saveChanges(includeNote,reopening=false){
   if(save.disabled)return;if(includeNote&&attachment.reading){message('Espera a que termine de cargar la captura.');return;}
-  save.disabled=true;reopen.disabled=true;reviewed.disabled=true;fixed.disabled=true;
-  const change={reviewed:reviewed.checked,fixed:fixed.checked,note:includeNote?(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value):''};
+  save.disabled=true;reopen.disabled=true;reviewed.disabled=true;fixed.disabled=true;followed.disabled=true;
+  const change={reviewed:reviewed.checked,fixed:fixed.checked,followed:followed.checked,note:includeNote?(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value):''};
   if(includeNote)change.image=attachment.image;
   const fingerprint=JSON.stringify(change);
   if(!updateAttempt||updateAttempt.fingerprint!==fingerprint)updateAttempt={fingerprint,requestId:crypto.randomUUID()};
   message('Guardando seguimiento…');
   try{
    const result=await request({action:'followup',reportId:report.id,...change,requestId:updateAttempt.requestId});
-   showNotes(result.notes);report.updatedAt=result.updatedAt;report.resolvedAt=result.resolvedAt;report.status=result.status;report.reviewed=result.status==='Resuelto'||result.status==='En revisión';
-   reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';
+   showNotes(result.notes);report.updatedAt=result.updatedAt;report.resolvedAt=result.resolvedAt;report.status=result.status;report.reviewed=result.reviewed;report.followed=result.followed;
+   reviewed.checked=report.reviewed;fixed.checked=result.status==='Resuelto';followed.checked=report.followed;
    summary.querySelector('strong').textContent=report.section+' · '+result.status;positionReviewCard(report,details);
    if(includeNote&&(reopening?'Solicitud de nueva revisión: '+note.value.trim():note.value)===change.note)note.value='';
    if(includeNote&&attachment.image===change.image)attachment.clear();
-   updateAttempt=null;message(includeNote&&(change.note.trim()||change.image)?'Comentario guardado. El reporte vuelve a pendiente en rojo, en su impacto original.':reopening?'Nueva revisión solicitada: comentario guardado y reporte pendiente en rojo.':fixed.checked?'Reporte solucionado: aparece en verde en la sección «Solucionados», al final de la página.':'Seguimiento guardado. El reporte original no se ha modificado.');
-  }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';message(error.message);}
-  finally{save.disabled=false;reopen.disabled=false;reviewed.disabled=false;fixed.disabled=false;}
+   updateAttempt=null;message(report.status==='Resuelto'&&report.followed===false?'Seguimiento pendiente: el reporte vuelve a su impacto en azul. Revisado y Solucionado siguen marcados.':includeNote&&(change.note.trim()||change.image)?'Comentario guardado. Seguimiento pendiente; se conserva el estado del reporte.':reopening?'Comentario guardado y seguimiento pendiente.':fixed.checked?'Reporte solucionado: aparece en verde en la sección «Solucionados», al final de la página.':'Seguimiento guardado. El reporte original no se ha modificado.');
+  }catch(error){reviewed.checked=report.reviewed||report.status==='Resuelto';fixed.checked=report.status==='Resuelto';followed.checked=report.followed!==false;message(error.message);}
+  finally{save.disabled=false;reopen.disabled=false;reviewed.disabled=false;fixed.disabled=false;followed.disabled=false;}
  }
- fixed.onchange=()=>{if(fixed.checked)reviewed.checked=true;return saveChanges(false);};
+ followed.onchange=()=>saveChanges(false);
+ fixed.onchange=()=>{if(fixed.checked){reviewed.checked=true;followed.checked=true;}return saveChanges(false);};
  reviewed.onchange=()=>{if(!reviewed.checked)fixed.checked=false;return saveChanges(false);};
  changes.onsubmit=e=>{e.preventDefault();return saveChanges(true);};
  reviewCards.set(report.id,{report,details});positionReviewCard(report,details);

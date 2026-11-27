@@ -8,3 +8,5 @@
 .reportCard summary .editTitleButton{display:inline-block;margin:10px 0 0 10px;padding:5px 10px;font-size:.875rem;background:#fff;border-color:#9bafbb}.reportTitleForm{margin:18px 0;padding:18px;border:1px solid #b9cbd5;border-radius:9px;background:#fff}.titleActions{display:flex;flex-wrap:wrap;gap:10px}
 
 .ownerReportEditor{padding:1rem;border:2px solid #287680;border-radius:12px;margin:1rem 0}.ownerReportEditor button{margin-right:.5rem}
+
+.reportCard.state-followup{border-color:#8ebce8;border-left:5px solid #2264b5;background:#edf5ff}.state-followup .reviewState{color:#124b8e;background:#d2e6ff}
